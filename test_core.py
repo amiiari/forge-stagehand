@@ -278,11 +278,15 @@ def test_grid_points():
     assert parse_cell("F1") is None and parse_cell("C6") is None and parse_cell("") is None
     assert format_cell((0.5, 0.5)) == "C3" and format_cell((0.0, 0.0, 0.4, 1.0)) == "B3" and format_cell((0.999, 0.999)) == "E5"
     assert default_cells(1) == ["C3"] and default_cells(2) == ["B3", "D3"] and default_cells(3) == ["A3", "C3", "E3"]
-    # a point owns its center, shares the space between two points, leaves far corners to the base
+    # the image is split between the points: nearest wins, an even split right on the border,
+    # nothing left to the base alone (a fade starved heads near the top of their character)
     w = region_weights([parse_cell("B3"), parse_cell("D3")], 11, 11).reshape(3, 11, 11)  # odd: has a middle
-    assert w[1, 5, 3] > 0.9 and w[2, 5, 7] > 0.9
-    assert abs(float(w[1, 5, 5] - w[2, 5, 5])) < 1e-6 and w[1, 5, 5] > 0.3
-    assert w[0, 0, 0] > 0.5
+    assert w[1, 5, 3] > 0.99 and w[2, 5, 7] > 0.99 and w[1, 0, 0] > 0.99 and w[2, 10, 10] > 0.99
+    assert abs(float(w[1, 5, 5] - w[2, 5, 5])) < 1e-6 and w[1, 5, 5] > 0.49
+    assert float(w[0].max()) < 1e-6
+    # stacked in one column: top half / bottom half
+    w = region_weights([parse_cell("C2"), parse_cell("C4")], 11, 11).reshape(3, 11, 11)
+    assert w[1, 1, 5] > 0.99 and w[2, 9, 5] > 0.99 and w[1, 1, 0] > 0.99
     assert position_label(parse_cell("B3"), [parse_cell("B3"), parse_cell("D3")]) == "on the left"
     # PNG info lines carry a cell instead of a box
     text = show("base", [(1, "Ruby", "B2", "girl, black hair")])

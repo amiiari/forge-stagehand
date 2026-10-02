@@ -112,7 +112,13 @@ def read(text: str) -> tuple[str, dict]:
 # A point is NovelAI's grid position: the character's center, with a soft area around it.
 Box = tuple
 GRID = 5  # NovelAI V4/V4.5's 5x5 position grid: columns A-E, rows 1-5
-POINT_SIGMA = (0.15, 0.3)  # a point's area, as a Gaussian's spread across and down the image
+# A point is a character's center, and the image is split between the points: every spot
+# belongs to the nearest one, with a narrow blend at the border (OWN_SIGMA). Two points side by
+# side are the AI's Choice columns; stacked ones split top/bottom, diagonal ones diagonally.
+# What was tested and lost (ab_grids/26-27): a soft Gaussian area per point -- looks leaked
+# where kissing faces meet -- and a fade toward the edges, which starved heads (near the top)
+# of their character, so hair colors changed.
+OWN_SIGMA = 0.06
 
 
 def auto_boxes(count: int) -> list[Box]:
@@ -154,21 +160,25 @@ def _blur(mask: torch.Tensor, sigma: float) -> torch.Tensor:
     return out[0, 0]
 
 
-def region_weights(boxes: list[Box], height: int, width: int, blur: float = 1.5, sigma: tuple = POINT_SIGMA) -> torch.Tensor:
+def region_weights(boxes: list[Box], height: int, width: int, blur: float = 1.5, own: float = OWN_SIGMA) -> torch.Tensor:
     """[1 + len(boxes), height * width] blend weights; row 0 is the background (the base
     prompt alone). Every token's weights sum to 1, so overlapping places share it. A box is a
-    blurred rectangle; a point a Gaussian, so neighbouring characters overlap gradually."""
+    blurred rectangle; points split the image between them, nearest point wins (see above)."""
     ys = (torch.arange(height) + 0.5) / height
     xs = (torch.arange(width) + 0.5) / width
-    masks = []
-    for shape in boxes:
+    masks = [None] * len(boxes)
+    points = [i for i, shape in enumerate(boxes) if len(shape) == 2]
+    if points:
+        d2 = torch.stack([(xs[None, :] - boxes[i][0]) ** 2 + (ys[:, None] - boxes[i][1]) ** 2 for i in points])
+        ownership = torch.softmax(-d2 / (2 * own**2), 0)
+        for k, i in enumerate(points):
+            masks[i] = ownership[k]
+    for i, shape in enumerate(boxes):
         if len(shape) == 2:
-            (x, y), (sx, sy) = shape, sigma
-            masks.append(torch.exp(-((xs[None, :] - x) ** 2) / (2 * sx**2) - ((ys[:, None] - y) ** 2) / (2 * sy**2)))
             continue
         x0, y0, x1, y1 = shape
         mask = ((ys[:, None] >= y0) & (ys[:, None] < y1) & (xs[None, :] >= x0) & (xs[None, :] < x1)).float()
-        masks.append(_blur(mask, blur) if blur > 0 else mask)
+        masks[i] = _blur(mask, blur) if blur > 0 else mask
     regions = torch.stack(masks) if masks else torch.zeros(0, height, width)
     background = (1 - regions.sum(0)).clamp(min=0)
     weights = torch.cat([background[None], regions])

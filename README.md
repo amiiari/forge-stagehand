@@ -2,18 +2,21 @@
 
 Multi-character prompting and image references for Forge Neo on **Anima**: who's in the
 picture, where they stand, what they look like. It's modeled on NovelAI's versions of these
-features and looks like them. Both panels sit under the prompt boxes in txt2img and img2img,
-inside one **Stagehand** fold-out. Closed, its header says what's active ("2 characters ·
-1 reference", or "off"), and it remembers whether you left it open:
+features and looks like them. Both sit under the prompt boxes in txt2img and img2img, inside
+one **Stagehand** fold-out (it remembers whether you left it open). Its header has a pill per
+feature, which works with the fold-out closed: lit = on, with a count of the characters or
+references in use. Switching a feature off hides its section and leaves it out of the next
+image, and keeps its cards:
 
-- **Character Prompts**: a prompt box per character, placed by "AI's Choice" or by boxes you
-  drag over the output image ([NovelAI's multi-character prompting](https://docs.novelai.net/en/image/multiplecharacters/)).
+- **Character Prompts**: a prompt box per character, placed by "AI's Choice", by boxes you
+  drag over the output image, or on NovelAI's 5×5 grid ([NovelAI's multi-character prompting](https://docs.novelai.net/en/image/multiplecharacters/)).
 - **Precise Reference**: reference image cards with a type, Strength and Fidelity
   ([NovelAI's Precise Reference](https://docs.novelai.net/en/image/precisereference/)).
 
-Each panel has a **How to use** fold-out under its title, for people who've never used
+Each section has a **How to use** fold-out at its bottom, for people who've never used
 NovelAI (it's the `HELP` text at the top of each script). `javascript/stagehand.js` does the
-browser side: the fold-out, splitting pasted characters into the cards, the position boxes.
+browser side: the fold-out and its pills, splitting pasted characters into the cards, the
+position editors.
 
 Both work on Anima's cross-attention, which `backend/nn/anima.py` exposes no patch points for.
 `lib_precise_reference/anima_hooks.py` wraps it once for both features, so neither can
@@ -25,8 +28,8 @@ silently disable the other, whatever order the scripts load in.
 
 **+** adds a character. Each card has:
 
-- an **On** checkbox: untick it to leave the character out of the next image without deleting
-  it;
+- an **On** pill in the character's color: switch it off to leave the character out of the next
+  image without deleting it;
 - a name;
 - a **Face** dropdown for ADetailer (see below; leave it on auto);
 - ↑ / ↓ to reorder, ⧉ to duplicate, 🗑 to delete;
@@ -56,9 +59,15 @@ even while hugging.
 - **AI's Choice** (default) splits the image into equal columns, left to right in card order.
   Unlike NovelAI's, the model doesn't pick the places itself: a version that let it was tested
   and lost (see *Interaction tags*).
-- **Turn it off** and a colored box per character appears in a dashed frame over the output
-  area. Drag a box by its name tab to move it, and by its corner dot to resize. Clicks elsewhere
-  reach the image. Boxes may overlap; the overlap is shared.
+- **Turn it off** to place the characters yourself, over the output area, in one of two ways
+  (the switch next to AI's Choice; switching keeps each character where it was):
+  - **Boxes**: a colored box per character in a dashed frame. Drag a box by its name tab to
+    move it, and by its corner dot to resize. Clicks elsewhere reach the image. Boxes may
+    overlap; the overlap is shared.
+  - **Grid**: NovelAI V4.5's 5×5 grid. Each character is a dot; drag it to a cell (it snaps),
+    and the cell (`C3`) marks the character's *center*. Around it the character gets a soft
+    area (a Gaussian about 0.15 of the width across and 0.3 of the height down,
+    `POINT_SIGMA`), so neighbours blend into each other instead of meeting at an edge.
 - **Positions are proportional:** they're stored as fractions of the image, so the same layout
   applies at any resolution, through hires fix, and with Set Queue's random resolutions.
   - The frame always has the shape of the *next* image (your width × height). It sits on the
@@ -220,6 +229,9 @@ Both go in `models\precise_reference\` (about 2 GB):
 
 ### Controls
 
+- **Several cards blend** into one reference (up to 4): the same character from a few angles,
+  or a character plus a style. For solo images or the whole image's look/composition: two
+  *different* characters' references blend into one character, as NovelAI's do too.
 - **Type**: NovelAI's three. It only picks the starting Strength (Style = 0.5, the others
   1.0). The adapter has one mode, and no setting was found that separates a character from
   its art style, so Character and Character & Style behave the same.
