@@ -38,8 +38,10 @@ REFERENCE_TYPES = tuple(TYPE_STRENGTH)
 # For people who've never used NovelAI: collapsed under the panel's title until asked for.
 HELP = """<details class="nai-help"><summary>How to use</summary><div>
 <ol>
-<li><b>+</b> adds a reference card. Drop in an image of a character to keep (face, hair, outfit) or of an art
-style to copy. Up to 4 cards; your prompt still sets the scene.</li>
+<li><b>+</b> adds a reference card: an image of a character to keep (face, hair, outfit), an art style to copy, or
+a composition to follow. Up to 4 cards, all blended together -- e.g. the same character from several angles. Your
+prompt still sets the scene. For solo images or the whole image: two different characters' references blend into
+one character (NovelAI's do the same).</li>
 <li><b>Type</b> only sets a starting Strength: 1.0 for Character and Character &amp; Style, 0.5 for Style.</li>
 <li><b>Strength:</b> how much of the reference goes in. 0 turns the card off; below 0 pushes away from it.</li>
 <li><b>Fidelity:</b> how hard the reference is to override with your prompt. Lower it if the prompt
@@ -229,11 +231,13 @@ class PreciseReference(scripts.Script):
         infotext = []
 
         with gr.Column(elem_id=f"nai_{tab}_pr", elem_classes=["nai-panel"]):
+            # The feature's on/off: shown as a pill in the Stagehand header (javascript/stagehand.js).
+            on = gr.Checkbox(value=True, label="Precise Reference", elem_id=f"nai_{tab}_pr_on", elem_classes=["nai-hidden"])
             with gr.Row(elem_classes=["nai-head"]):
-                gr.HTML('<div class="nai-title">Precise Reference <span class="nai-hint">clean images on plain backgrounds work best</span></div>')
+                gr.HTML('<div class="nai-section">References</div>')
                 in_adetailer = gr.Checkbox(value=False, label="also in ADetailer", elem_id=f"nai_{tab}_pr_adetailer", elem_classes=["nai-auto"], scale=0, min_width=150)
+                gr.HTML('<span class="nai-hint">clean images on plain backgrounds work best</span>')
                 add = gr.Button("+", elem_classes=["nai-add"], min_width=40, scale=0)
-            gr.HTML(HELP)
             shown = gr.State([False] * MAX_REFS)
             cards = []
             buttons = [add]
@@ -285,6 +289,7 @@ class PreciseReference(scripts.Script):
                 ]
 
             add.click(fn=_add_card, inputs=[shown], outputs=[shown] + cards, show_progress=False)
+            gr.HTML(HELP)
             components.append(in_adetailer)
             for component in components + buttons:
                 # ui-config.json keys come from a component's LABEL, so every card would
@@ -292,9 +297,12 @@ class PreciseReference(scripts.Script):
                 component.do_not_save_to_config = True
 
         infotext.append((in_adetailer, "PR in ADetailer"))
+        # pasting an image made with references switches the feature on
+        infotext.append((on, lambda params: True if any(params.get(f"PR {n} image") for n in range(1, MAX_REFS + 1)) else None))
         self.infotext_fields = infotext
         self.paste_field_names = [label for _, label in infotext if isinstance(label, str)]
-        return components
+        # [4 x (image, type, strength, fidelity), also in ADetailer, on/off]: added fields go last
+        return components + [on]
 
     def args_from_infotext(self, params):
         """This script's args for re-running an image from its PNG info (the batch hires-fix
@@ -309,11 +317,12 @@ class PreciseReference(scripts.Script):
             except (TypeError, ValueError):
                 strength, fidelity = 1.0, 1.0
             args += [path, params.get(f"PR {i + 1} type", "Character"), strength, fidelity]
-        return args + [str(params.get("PR in ADetailer", "")) == "True"] if found else None
+        return args + [str(params.get("PR in ADetailer", "")) == "True", True] if found else None
 
     def process_before_every_sampling(self, p, *args, **kwargs):
+        on = args[MAX_REFS * CARD_FIELDS + 1] if len(args) > MAX_REFS * CARD_FIELDS + 1 else True
         cards = [args[i * CARD_FIELDS : (i + 1) * CARD_FIELDS] for i in range(MAX_REFS)]
-        if not any(has_image(card[0]) for card in cards):
+        if on is False or not any(has_image(card[0]) for card in cards):
             return
         overrides = getattr(p, "_pr_xyz", None) or {}
         # A copied p (XYZ cells) shares extra_generation_params: start from a clean slate.

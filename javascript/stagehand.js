@@ -1,18 +1,23 @@
 // Stagehand in the browser:
 // - both panels (Character Prompts, Precise Reference) go under the prompt boxes, inside one
-//   "Stagehand" fold-out that says what's active while it's closed;
+//   "Stagehand" fold-out. Its header has a pill per feature that switches it on or off -- also
+//   while the fold-out is closed -- and an off feature's section is hidden;
 // - a prompt that carries characters -- Set Queue's "Restore template" (marked ⟦n⟧), or text
 //   pasted from an image's PNG info ("Character 1 (Ruby): ...") -- is split into the cards;
-// - with "AI's Choice" off, a box per character is drawn over the output image -- NovelAI V5's
-//   positioning, on Forge's gallery. Drag a box to move it, its corner to resize; the result
-//   lands in the card's hidden position field as "x0 y0 x1 y1" (fractions of the image).
+// - with "AI's Choice" off, the characters are placed by hand over the output image: Boxes
+//   (drag a box to move it, its corner to resize; "x0 y0 x1 y1", fractions of the image) or
+//   Grid (NovelAI V4.5's 5x5 grid: drag a dot to a cell; "C3"). The result lands in the
+//   card's hidden position field.
 (() => {
     const TABS = [["txt2img", "t2i"], ["img2img", "i2i"]];
     const MAX = 6;
+    const GRID = 5;
+    const FEATURES = [["chars", "Character Prompts"], ["pr", "Precise Reference"]];
     let dragging = false;
 
     const el = (id) => gradioApp().getElementById(id);
     const field = (id) => el(id)?.querySelector("textarea, input");
+    const checkbox = (id) => el(id)?.querySelector("input[type=checkbox]");
 
     function setValue(input, value) {
         if (!input) return;
@@ -20,11 +25,23 @@
         updateInput(input);
     }
 
+    const featureOn = (id, feature) => checkbox(`nai_${id}_${feature}_on`)?.checked !== false;
+
+    function manualOf(id) {
+        return el(`nai_${id}_chars_manual`)?.querySelector("input:checked")?.value || "Boxes";
+    }
+
+    function setManual(id, value) {
+        const input = el(`nai_${id}_chars_manual`)?.querySelector(`input[value="${value}"]`);
+        if (input && !input.checked) input.click();
+    }
+
     function characters(id) {
         const out = [];
+        if (!featureOn(id, "chars")) return out;
         for (let n = 1; n <= MAX; n++) {
             const card = el(`nai_${id}_char${n}`);
-            // computed style, not offsetParent: a closed fold-out hides cards that still count
+            // the card's own display: a hidden section or a closed fold-out doesn't count
             if (!card || getComputedStyle(card).display === "none") continue;
             const on = card.querySelector(".nai-char-on input");
             const prompt = field(`nai_${id}_char${n}_prompt`);
@@ -36,6 +53,7 @@
     }
 
     function references(id) {
+        if (!featureOn(id, "pr")) return 0;
         let count = 0;
         for (let n = 1; n <= 4; n++) if (el(`nai_${id}_pr${n}_image`)?.querySelector("img")) count++;
         return count;
@@ -53,7 +71,25 @@
         try {
             box.open = localStorage.getItem(key) === "1";
         } catch (e) {}
-        box.innerHTML = '<summary><span class="nai-stagehand-title">Stagehand</span><span class="nai-stagehand-count"></span></summary>';
+        const summary = document.createElement("summary");
+        summary.innerHTML = '<span class="nai-stagehand-title">Stagehand</span>';
+        for (const [feature, label] of FEATURES) {
+            if (!el(`nai_${id}_${feature}_on`)) continue;
+            const pill = document.createElement("button");
+            pill.type = "button";
+            pill.className = "nai-pill";
+            pill.dataset.feature = feature;
+            pill.title = `Switch ${label} on or off (an off section is hidden, its settings kept)`;
+            pill.innerHTML = `<span class="nai-pill-dot"></span>${label}<span class="nai-pill-count"></span>`;
+            // a click on the pill must not also open or close the fold-out
+            pill.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                checkbox(`nai_${id}_${feature}_on`)?.click();
+            });
+            summary.appendChild(pill);
+        }
+        box.appendChild(summary);
         box.addEventListener("toggle", () => {
             try {
                 localStorage.setItem(key, box.open ? "1" : "0");
@@ -63,17 +99,23 @@
         panels.forEach((panel) => box.appendChild(panel));
     }
 
-    function summarize(id) {
-        const count = el(`nai_${id}_stagehand`)?.querySelector(".nai-stagehand-count");
-        if (!count) return;
-        const c = characters(id).length;
-        const r = references(id);
-        const parts = [];
-        if (c) parts.push(`${c} character${c > 1 ? "s" : ""}`);
-        if (r) parts.push(`${r} reference${r > 1 ? "s" : ""}`);
-        const text = parts.length ? parts.join(" · ") : "off";
-        if (count.textContent !== text) count.textContent = text;
-        count.classList.toggle("nai-active", parts.length > 0);
+    function sync(id) {
+        const box = el(`nai_${id}_stagehand`);
+        if (!box) return;
+        const counts = {chars: characters(id).length, pr: references(id)};
+        for (const pill of box.querySelectorAll(":scope > summary .nai-pill")) {
+            const feature = pill.dataset.feature;
+            const on = featureOn(id, feature);
+            pill.classList.toggle("nai-on", on);
+            const count = on && counts[feature] ? ` ${counts[feature]}` : "";
+            const badge = pill.querySelector(".nai-pill-count");
+            if (badge.textContent !== count) badge.textContent = count;
+            const panel = el(`nai_${id}_${feature}`);
+            if (panel) panel.style.display = on ? "" : "none";
+        }
+        // the Boxes / Grid switch only matters with AI's Choice off
+        const manual = el(`nai_${id}_chars_manual`);
+        if (manual) manual.style.display = checkbox(`nai_${id}_chars_auto`)?.checked ? "none" : "";
     }
 
     // ------------------------------------------------------------------ prompts with characters in them
@@ -90,7 +132,7 @@
     }
 
     // the PNG info's form; same pattern as characters.py's _LABEL
-    const LABEL = /^Character (\d+)(?: \((.*?)\))?(?: at ((?:[\d.]+ ){3}[\d.]+))?:[ \t]?(.*)$/;
+    const LABEL = /^Character (\d+)(?: \((.*?)\))?(?: at ((?:[\d.]+ ){3}[\d.]+|[A-E][1-5]))?:[ \t]?(.*)$/;
 
     function readLines(text) {
         // a whole PNG info (prompt, negative, parameters) is Forge's paste button's to split
@@ -126,9 +168,15 @@
             if (c.name) setValue(el(`nai_${id}_char${n}`)?.querySelector(".nai-char-name input, .nai-char-name textarea"), c.name);
             if (c.box) setValue(field(`nai_${id}_char${n}_box`), c.box);
         }
-        if (kind === "prompt" && Object.values(parsed.chars).some((c) => c.box)) {
-            const auto = field(`nai_${id}_chars_auto`);
-            if (auto?.checked) auto.click();
+        if (kind === "prompt") {
+            const places = Object.values(parsed.chars).map((c) => c.box).filter(Boolean);
+            if (places.length) {
+                const auto = checkbox(`nai_${id}_chars_auto`);
+                if (auto?.checked) auto.click();
+                setManual(id, places.some((p) => cell(p)) ? "Grid" : "Boxes");
+            }
+            const on = checkbox(`nai_${id}_chars_on`);
+            if (on && !on.checked) on.click();
         }
         setValue(input, parsed.base);
     }
@@ -151,13 +199,45 @@
         }
     }
 
-    // ------------------------------------------------------------------ position boxes
+    // ------------------------------------------------------------------ positions
     function parse(value) {
         const v = (value || "").trim().split(/[\s,]+/).map(Number);
         return v.length === 4 && v.every((x) => Number.isFinite(x)) && v[2] > v[0] && v[3] > v[1] ? v : null;
     }
 
-    // The canvas the boxes are placed on: always the shape of the NEXT image (the current
+    // "C3" -> [column 0-4, row 0-4], or null
+    function cell(value) {
+        const m = /^\s*([A-Ea-e])([1-5])\s*$/.exec(value || "");
+        return m ? [m[1].toUpperCase().charCodeAt(0) - 65, Number(m[2]) - 1] : null;
+    }
+
+    const cellName = (col, row) => `${String.fromCharCode(65 + col)}${row + 1}`;
+    const cellOf = (x, y) => cellName(Math.min(Math.floor(x * GRID), GRID - 1), Math.min(Math.floor(y * GRID), GRID - 1));
+    // where Grid puts a character with no cell yet: across the middle row, in card order
+    const defaultCell = (k, count) => cellName(Math.min(Math.floor(((k + 0.5) / count) * GRID), GRID - 1), 2);
+
+    // Switching Boxes <-> Grid keeps each character where it was: a box becomes the cell its
+    // center is in, a cell becomes a box around that point.
+    function convert(id, manual) {
+        const chars = characters(id);
+        chars.forEach((c, k) => {
+            const value = c.input?.value || "";
+            if (manual === "Grid") {
+                const box = parse(value);
+                if (box) setValue(c.input, cellOf((box[0] + box[2]) / 2, (box[1] + box[3]) / 2));
+            } else {
+                const at = cell(value);
+                if (!at) return;
+                const x = (at[0] + 0.5) / GRID;
+                const y = (at[1] + 0.5) / GRID;
+                const half = 0.5 / Math.max(chars.length, 2);
+                const box = [Math.max(0, x - half), Math.max(0, y - 0.45), Math.min(1, x + half), Math.min(1, y + 0.45)];
+                setValue(c.input, box.map((v) => v.toFixed(3)).join(" "));
+            }
+        });
+    }
+
+    // The canvas the positions are placed on: always the shape of the NEXT image (the current
     // width x height), since positions are fractions and scale with it. When the last output
     // has that shape the frame sits exactly on it (object-fit: contain); after a resolution
     // change it's a frame of the new shape, fitted in the gallery.
@@ -198,7 +278,7 @@
         event.preventDefault();
         event.stopPropagation();
         dragging = true;
-        const start = parse(input.value) || JSON.parse(div.dataset.box);
+        const start = mode === "dot" ? JSON.parse(div.dataset.at) : parse(input.value) || JSON.parse(div.dataset.box);
         const x0 = event.clientX;
         const y0 = event.clientY;
         const W = overlay.clientWidth;
@@ -207,22 +287,27 @@
         const move = (e) => {
             const dx = (e.clientX - x0) / W;
             const dy = (e.clientY - y0) / H;
-            if (mode === "move") {
+            if (mode === "dot") {
+                box = [Math.min(Math.max(start[0] + dx, 0), 0.999), Math.min(Math.max(start[1] + dy, 0), 0.999)];
+                placeDot(div, box);
+            } else if (mode === "move") {
                 const w = start[2] - start[0];
                 const h = start[3] - start[1];
                 const x = Math.min(Math.max(start[0] + dx, 0), 1 - w);
                 const y = Math.min(Math.max(start[1] + dy, 0), 1 - h);
                 box = [x, y, x + w, y + h];
+                place(div, box);
             } else {
                 box = [start[0], start[1], Math.min(Math.max(start[2] + dx, start[0] + 0.05), 1), Math.min(Math.max(start[3] + dy, start[1] + 0.05), 1)];
+                place(div, box);
             }
-            place(div, box);
         };
         const up = () => {
             window.removeEventListener("pointermove", move);
             window.removeEventListener("pointerup", up);
             dragging = false;
-            setValue(input, box.map((v) => v.toFixed(3)).join(" "));
+            // a dot snaps to the cell it was dropped in
+            setValue(input, mode === "dot" ? cellOf(box[0], box[1]) : box.map((v) => v.toFixed(3)).join(" "));
         };
         window.addEventListener("pointermove", move);
         window.addEventListener("pointerup", up);
@@ -236,10 +321,16 @@
         div.style.height = `${(box[3] - box[1]) * 100}%`;
     }
 
+    function placeDot(div, at) {
+        div.dataset.at = JSON.stringify(at);
+        div.style.left = `${at[0] * 100}%`;
+        div.style.top = `${at[1] * 100}%`;
+    }
+
     function render(tab, id) {
         if (dragging) return;
         let overlay = el(`nai_${id}_positions`);
-        const auto = field(`nai_${id}_chars_auto`);
+        const auto = checkbox(`nai_${id}_chars_auto`);
         const chars = characters(id);
         const f = auto && !auto.checked && chars.length ? frame(tab) : null;
         if (!f) {
@@ -250,45 +341,62 @@
             overlay?.remove();
             overlay = document.createElement("div");
             overlay.id = `nai_${id}_positions`;
-            overlay.className = "nai-positions";
             f.gallery.style.position = "relative";
             f.gallery.appendChild(overlay);
         }
+        const grid = manualOf(id) === "Grid";
+        overlay.className = grid ? "nai-positions nai-grid" : "nai-positions";
         Object.assign(overlay.style, {display: "", left: `${f.left}px`, top: `${f.top}px`, width: `${f.width}px`, height: `${f.height}px`});
 
         const keep = new Set();
         chars.forEach((c, k) => {
-            keep.add(String(c.n));
-            let div = overlay.querySelector(`[data-n="${c.n}"]`);
+            const kind = grid ? "dot" : "box";
+            keep.add(`${kind}${c.n}`);
+            let div = overlay.querySelector(`[data-key="${kind}${c.n}"]`);
             if (!div) {
                 div = document.createElement("div");
-                div.dataset.n = c.n;
-                div.className = `nai-pos-box nai-c${c.n}`;
-                div.innerHTML = '<span class="nai-pos-label"></span><span class="nai-pos-handle"></span>';
-                div.addEventListener("pointerdown", (e) => startDrag(e, div, c.input, e.target.classList.contains("nai-pos-handle") ? "resize" : "move", overlay));
+                div.dataset.key = `${kind}${c.n}`;
+                if (grid) {
+                    div.className = `nai-pos-dot nai-c${c.n}`;
+                    div.innerHTML = '<span class="nai-pos-label"></span>';
+                    div.addEventListener("pointerdown", (e) => startDrag(e, div, c.input, "dot", overlay));
+                } else {
+                    div.className = `nai-pos-box nai-c${c.n}`;
+                    div.innerHTML = '<span class="nai-pos-label"></span><span class="nai-pos-handle"></span>';
+                    div.addEventListener("pointerdown", (e) => startDrag(e, div, c.input, e.target.classList.contains("nai-pos-handle") ? "resize" : "move", overlay));
+                }
                 overlay.appendChild(div);
             }
-            div.querySelector(".nai-pos-label").textContent = c.label;
-            // no saved position yet: AI's Choice columns, which is also what the backend uses
-            place(div, parse(c.input?.value) || [k / chars.length, 0, (k + 1) / chars.length, 1]);
+            if (grid) {
+                const at = cell(c.input?.value) || cell(defaultCell(k, chars.length));
+                div.querySelector(".nai-pos-label").textContent = `${c.label} · ${cellName(at[0], at[1])}`;
+                placeDot(div, [(at[0] + 0.5) / GRID, (at[1] + 0.5) / GRID]);
+            } else {
+                div.querySelector(".nai-pos-label").textContent = c.label;
+                // no saved position yet: AI's Choice columns, which is also what the backend uses
+                place(div, parse(c.input?.value) || [k / chars.length, 0, (k + 1) / chars.length, 1]);
+            }
         });
-        overlay.querySelectorAll(".nai-pos-box").forEach((d) => keep.has(d.dataset.n) || d.remove());
+        overlay.querySelectorAll("[data-key]").forEach((d) => keep.has(d.dataset.key) || d.remove());
     }
 
     onUiLoaded(() => {
         for (const [tab, id] of TABS) {
             wrap(tab, id);
             splitOnPaste(tab, id);
+            el(`nai_${id}_chars_manual`)?.querySelectorAll("input[type=radio]").forEach((radio) => {
+                radio.addEventListener("change", () => radio.checked && convert(id, radio.value));
+            });
             el(`nai_${id}_chars`)?.querySelectorAll(".nai-char-on").forEach((on) => {
-                on.title = "Untick to leave this character out of the next image without deleting it";
+                on.title = "Switch this character off to leave it out of the next image without deleting it";
             });
         }
         // Cheap and robust against everything that can change the layout (cards, toggles,
-        // a new image, resizing); boxes aren't re-placed while one is being dragged.
+        // a new image, resizing); positions aren't re-placed while one is being dragged.
         setInterval(() => TABS.forEach(([tab, id]) => {
             unmerge(tab, id);
+            sync(id);
             render(tab, id);
-            summarize(id);
         }), 400);
     });
 })();

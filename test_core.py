@@ -271,6 +271,25 @@ def test_png_info_lines():
     assert show("plain", []) == "plain"
 
 
+def test_grid_points():
+    from lib_precise_reference.characters import default_cells, format_cell, parse_cell, position_label, read, region_weights, show
+
+    assert parse_cell("C3") == (0.5, 0.5) and parse_cell("a1") == (0.1, 0.1)
+    assert parse_cell("F1") is None and parse_cell("C6") is None and parse_cell("") is None
+    assert format_cell((0.5, 0.5)) == "C3" and format_cell((0.0, 0.0, 0.4, 1.0)) == "B3" and format_cell((0.999, 0.999)) == "E5"
+    assert default_cells(1) == ["C3"] and default_cells(2) == ["B3", "D3"] and default_cells(3) == ["A3", "C3", "E3"]
+    # a point owns its center, shares the space between two points, leaves far corners to the base
+    w = region_weights([parse_cell("B3"), parse_cell("D3")], 11, 11).reshape(3, 11, 11)  # odd: has a middle
+    assert w[1, 5, 3] > 0.9 and w[2, 5, 7] > 0.9
+    assert abs(float(w[1, 5, 5] - w[2, 5, 5])) < 1e-6 and w[1, 5, 5] > 0.3
+    assert w[0, 0, 0] > 0.5
+    assert position_label(parse_cell("B3"), [parse_cell("B3"), parse_cell("D3")]) == "on the left"
+    # PNG info lines carry a cell instead of a box
+    text = show("base", [(1, "Ruby", "B2", "girl, black hair")])
+    assert text == "base\n\nCharacter 1 (Ruby) at B2: girl, black hair"
+    assert read(text)[1] == {1: {"name": "Ruby", "box": "B2", "text": "girl, black hair"}}
+
+
 def test_has_image():
     import numpy as np
 

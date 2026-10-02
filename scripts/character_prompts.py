@@ -28,9 +28,13 @@ from lib_precise_reference import anima_hooks
 from lib_precise_reference.characters import (
     RegionSession,
     auto_boxes,
+    center,
+    default_cells,
+    format_cell,
     has_marks,
     match_faces,
     merge,
+    parse_cell,
     placement,
     read,
     real_length,
@@ -49,17 +53,23 @@ PROMPT = 2  # index of the prompt within a card's fields
 FACE = 5  # ...and of its ADetailer face pick
 NTH = ("1st", "2nd", "3rd", "4th", "5th", "6th")
 FACES = ["Face: auto"] + [f"Face: {nth} from left" for nth in NTH]
+# With AI's Choice off, how the characters are placed by hand: boxes dragged over the output,
+# or NovelAI V4.5's 5x5 grid (a cell per character = its center, with a soft area around it).
+MANUAL = ("Boxes", "Grid")
 # For people who've never used NovelAI: collapsed under the panel's title until asked for.
 HELP = """<details class="nai-help"><summary>How to use</summary><div>
 <ol>
 <li><b>Main prompt:</b> the scene, the style, and how many people (<code>2girls</code>, <code>1boy, 1girl</code>).
 Don't describe the characters there.</li>
 <li><b>+</b> adds a character. Describe only that character in its box: hair, eyes, outfit, expression.
-Whatever that character must not have goes under <b>Undesired Content</b>. <b>On</b> (top left of a card)
-leaves a character out of the next image when unticked, without deleting it.</li>
+Whatever that character must not have goes under <b>Undesired Content</b>. A card's <b>On</b> pill switches that
+character off without deleting it; the <b>Character Prompts</b> pill in the Stagehand header does that for all of
+them (it works with Stagehand closed).</li>
 <li><b>AI's Choice</b> on: the characters stand left to right in card order (&uarr; &darr; to reorder).
-Off: a colored box per character appears over the output image. Drag its name tab to move it and its corner dot
-to resize it. The boxes scale with the image, so they keep working at any size.</li>
+Off: place them yourself, over the output image. <b>Boxes</b>: drag a box by its name tab, resize it by its corner
+dot. <b>Grid</b>: NovelAI's 5&times;5 grid; drag a character's dot to a cell, which marks its center. Grid points blend
+into each other more softly, so characters touching or overlapping tend to look more natural. Both scale with the
+image, so they keep working at any size.</li>
 <li><b>Interactions:</b> <code>source#hug</code> in the box of the one doing it, <code>target#hug</code> in the
 box of the one it's done to, <code>mutual#kiss</code> in both for a shared action. If it comes out the wrong way
 round on every seed, swap the two cards (&uarr; &darr;): some poses have a side the model likes to put the doer on.</li>
@@ -87,6 +97,15 @@ def _format_box(box):
     return " ".join(f"{v:.3f}" for v in box)
 
 
+def _parse_place(text):
+    """A card's position: a grid cell ('C3') as a point, or a box, or None."""
+    return parse_cell(text) or _parse_box(text)
+
+
+def _format_place(shape):
+    return format_cell(shape) if len(shape) == 2 else _format_box(shape)
+
+
 def _characters(args):
     """[(number, name, prompt, uc, box, face)] for every enabled card with something to say --
     a box that is only a comment would otherwise still take an AI's Choice column. face is
@@ -97,8 +116,29 @@ def _characters(args):
         enabled, name, prompt, uc, box = args[1 + i * ARG_FIELDS : 1 + (i + 1) * ARG_FIELDS]
         if enabled and strip_comments(prompt or "").strip():
             face = FACES.index(faces[i]) - 1 if faces[i] in FACES[1:] else None
-            out.append((i + 1, (name or "").strip(), prompt, uc or "", _parse_box(box), face))
+            out.append((i + 1, (name or "").strip(), prompt, uc or "", _parse_place(box), face))
     return out
+
+
+def _tail(args):
+    """(on, manual): the args after the Face picks -- the feature's on/off pill (on unless the
+    caller says otherwise) and the hand placement style."""
+    rest = list(args[1 + MAX_CHARS * ARG_FIELDS + MAX_CHARS :])
+    on = rest[0] if rest and rest[0] is not None else True
+    manual = rest[1] if len(rest) > 1 and rest[1] in MANUAL else MANUAL[0]
+    return bool(on), manual
+
+
+def _places(characters, auto, manual):
+    """{number: box or point} for the characters, by AI's Choice or by hand."""
+    numbers = [c[0] for c in characters]
+    if auto:
+        return dict(zip(numbers, auto_boxes(len(numbers))))
+    if manual == "Grid":
+        cells = dict(zip(numbers, default_cells(len(numbers))))
+        return {c[0]: center(c[4]) if c[4] else parse_cell(cells[c[0]]) for c in characters}
+    columns = dict(zip(numbers, auto_boxes(len(numbers))))
+    return {c[0]: c[4] or columns[c[0]] for c in characters}
 
 
 def _face_picks(args):
@@ -244,9 +284,10 @@ def _clear_on_paste(infotext, params):
         for n, c in ucs.items():
             params[f"Char {n} UC"] = c["text"]
     # Forge's infotext keys can't contain an apostrophe, so "Char AI's Choice" never parses.
-    # Positions are written exactly when it was off.
-    positions = any(params.get(f"Char {n} position") for n in range(1, MAX_CHARS + 1))
-    params.setdefault("Char AI's Choice", str(not positions))
+    # Positions are written exactly when it was off; grid cells mean Grid.
+    positions = [params.get(f"Char {n} position") for n in range(1, MAX_CHARS + 1)]
+    params.setdefault("Char AI's Choice", str(not any(positions)))
+    params.setdefault("Char placement", "Grid" if any(parse_cell(v) for v in positions if v) else "Boxes")
     for n in range(1, MAX_CHARS + 1):
         for key in (f"Char {n} prompt", f"Char {n} UC", f"Char {n} name", f"Char {n} position"):
             params.setdefault(key, "")
@@ -280,7 +321,7 @@ def _with_characters(text, a):
     prompts = image.get("prompt_raw") or image["prompt"]  # with Save Raw Comments, the comments too
     ucs = image.get("uc_raw") or image["uc"]
     names = info.get("names", {})
-    positive = show(prompt, [(n, names.get(n, ""), None if info["auto"] else _format_box(info["boxes"][n]), prompts.get(n, "")) for n in info["numbers"]])
+    positive = show(prompt, [(n, names.get(n, ""), None if info["auto"] else _format_place(info["boxes"][n]), prompts.get(n, "")) for n in info["numbers"]])
     negative = show(negative or "", [(n, "", None, ucs.get(n, "")) for n in info["numbers"]])
     params = text[len(body):].lstrip(chr(10))  # with an empty prompt and negative, strip() ate the newline
     return f"{positive}{chr(10) + 'Negative prompt: ' + negative if negative else ''}{chr(10)}{params}".strip()
@@ -469,11 +510,14 @@ class CharacterPrompts(scripts.Script):
         ups, downs, copies, removes = [], [], [], []
 
         with gr.Column(elem_id=f"nai_{tab}_chars", elem_classes=["nai-panel"]):
+            # The feature's on/off: shown as a pill in the Stagehand header (javascript/stagehand.js).
+            on = gr.Checkbox(value=True, label="Character Prompts", elem_id=f"nai_{tab}_chars_on", elem_classes=["nai-hidden"])
             with gr.Row(elem_classes=["nai-head"]):
-                gr.HTML('<div class="nai-title">Character Prompts</div>')
+                gr.HTML('<div class="nai-section">Characters</div>')
                 auto = gr.Checkbox(value=True, label="AI's Choice", elem_id=f"nai_{tab}_chars_auto", elem_classes=["nai-auto"], scale=0, min_width=120)
+                manual = gr.Radio(list(MANUAL), value=MANUAL[0], show_label=False, container=False, elem_id=f"nai_{tab}_chars_manual", elem_classes=["nai-manual"], scale=0, min_width=160)
+                gr.HTML("")  # spacer: pushes + to the right
                 add = gr.Button("+", elem_classes=["nai-add"], min_width=40, scale=0)
-            gr.HTML(HELP)
             shown = gr.State([False] * MAX_CHARS)
 
             for i in range(MAX_CHARS):
@@ -525,16 +569,21 @@ class CharacterPrompts(scripts.Script):
                 copies[i].click(_duplicate(i), [shown] + fields, [shown] + everything, show_progress="hidden")
 
             add.click(_add, [shown] + fields, [shown] + everything, show_progress="hidden")
+            gr.HTML(HELP)
 
         for component in [auto, add] + ups + downs + copies + removes:
             component.do_not_save_to_config = True  # ui-config keys collide by label
         # "True"/"False" rather than a callable key, so Send to img2img carries it too
         infotext.append((auto, "Char AI's Choice"))
+        infotext.append((manual, "Char placement"))
+        # pasting an image with characters switches the feature on
+        infotext.append((on, lambda params: True if any(params.get(f"Char {n} prompt") for n in range(1, MAX_CHARS + 1)) else None))
         self.infotext_fields = infotext
         self.paste_field_names = [key for _, key in infotext if isinstance(key, str)]
-        # the faces go last, so API callers written for five fields per card keep working
+        # Added fields go last, so API callers written for the older layouts keep working:
+        # [AI's Choice] + 6 x [on, name, prompt, uc, position] + 6 faces + [on/off, placement]
         per_card = [fields[i * CARD_FIELDS : (i + 1) * CARD_FIELDS] for i in range(MAX_CHARS)]
-        return [auto] + [c for card in per_card for c in card[:ARG_FIELDS]] + [card[ARG_FIELDS] for card in per_card]
+        return [auto] + [c for card in per_card for c in card[:ARG_FIELDS]] + [card[ARG_FIELDS] for card in per_card] + [on, manual]
 
     # ------------------------------------------------------------------ processing
     def args_from_infotext(self, params):
@@ -543,7 +592,7 @@ class CharacterPrompts(scripts.Script):
         faces = [params.get(f"Char {n} ADetailer face", FACES[0]) for n in range(1, MAX_CHARS + 1)]
         if all(f == FACES[0] for f in faces):
             return None
-        return [True] + [x for _ in range(MAX_CHARS) for x in (True, "", "", "", "")] + faces
+        return [True] + [x for _ in range(MAX_CHARS) for x in (True, "", "", "", "")] + faces + [True, MANUAL[0]]
 
     def before_process(self, p, *args):
         if getattr(p, "_ad_inner", False):
@@ -551,7 +600,10 @@ class CharacterPrompts(scripts.Script):
         # Prompt Matrix and friends hand over a list per image; leave those alone.
         if not isinstance(p.prompt, str) or not isinstance(p.negative_prompt, str):
             return
-        characters = _characters(args)
+        on, manual = _tail(args)
+        # Off: the cards are left out. A prompt that carries characters (below) still has them:
+        # they're that image's characters, whatever the panel says.
+        characters = _characters(args) if on else []
         auto = bool(args[0])
 
         # A prompt copied from an image's PNG info (an API caller, the batch tabs, a paste the
@@ -563,10 +615,11 @@ class CharacterPrompts(scripts.Script):
             p.negative_prompt = merge(negative, {n: c["text"] for n, c in shown_ucs.items() if n in shown_chars})
             known = {c[0]: c for c in characters}
             picks = _face_picks(args)
-            characters = [(n, c["name"] or known.get(n, (n, ""))[1], c["text"], "", _parse_box(c["box"]),
+            characters = [(n, c["name"] or known.get(n, (n, ""))[1], c["text"], "", _parse_place(c["box"]),
                            picks.get(n)) for n, c in sorted(shown_chars.items())]
-            if any(c["box"] for c in shown_chars.values()):
-                auto = False
+            places = [_parse_place(c["box"]) for c in shown_chars.values()]
+            auto = not any(places)
+            manual = "Grid" if any(pl and len(pl) == 2 for pl in places) else "Boxes"
         elif has_marks(p.prompt):
             # Already merged (a restored template the panel hasn't split yet, or an API
             # caller): the marks are the characters; boxes only add names and positions.
@@ -582,14 +635,12 @@ class CharacterPrompts(scripts.Script):
             return
 
         numbers = [c[0] for c in characters]
-        boxes = dict(zip(numbers, auto_boxes(len(numbers))))
-        if not auto:
-            boxes.update({c[0]: c[4] for c in characters if c[4]})
+        boxes = _places(characters, auto, manual)
         faces = {r: c[5] for r, c in enumerate(characters) if c[5] is not None}
 
         names = {c[0]: c[1] for c in characters if c[1]}
         # the prompts, names and positions go into the PNG info's prompt section (_with_characters)
-        p._nai_chars = {"numbers": numbers, "boxes": boxes, "auto": auto, "faces": faces, "names": names, "steps": p.steps, "images": {}}
+        p._nai_chars = {"numbers": numbers, "boxes": boxes, "auto": auto, "manual": manual, "faces": faces, "names": names, "steps": p.steps, "images": {}}
         for n, _, _, _, _, face in characters:
             if face is not None:
                 p.extra_generation_params[f"Char {n} ADetailer face"] = FACES[face + 1]
@@ -686,7 +737,7 @@ class CharacterPrompts(scripts.Script):
         unet.add_conditioning_modifier(session.modifier)
         p.sd_model.forge_objects.unet = unet
         info["ran"] = True
-        layout = "AI's Choice" if info["auto"] else "custom"
+        layout = "AI's Choice" if info["auto"] else info["manual"].lower()
         print(f"[Character Prompts] {len(info['numbers'])} characters, {layout}{' (hires)' if hr else ''}")
 
     def postprocess(self, p, processed, *args):

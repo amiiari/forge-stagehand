@@ -71,7 +71,7 @@ def has_marks(text) -> bool:
 # copies the prompt somewhere -- the paste button, the batch ADetailer / hires-fix tabs, an
 # API caller -- carries the characters along, and Stagehand reads them back.
 _WHOLE_INFOTEXT = re.compile(r"^(?:Negative prompt:|Steps: \d)", re.M)
-_LABEL = re.compile(r"^Character (\d+)(?: \((.*?)\))?(?: at ((?:[\d.]+ ){3}[\d.]+))?:[ \t]?(.*)$")
+_LABEL = re.compile(r"^Character (\d+)(?: \((.*?)\))?(?: at ((?:[\d.]+ ){3}[\d.]+|[A-E][1-5]))?:[ \t]?(.*)$")
 
 
 def show(base: str, chars: list) -> str:
@@ -108,12 +108,41 @@ def read(text: str) -> tuple[str, dict]:
 
 
 # ---------------------------------------------------------------------------- regions
-Box = tuple  # (x0, y0, x1, y1), fractions of the image
+# A character's place is a box (x0, y0, x1, y1) or a point (x, y), fractions of the image.
+# A point is NovelAI's grid position: the character's center, with a soft area around it.
+Box = tuple
+GRID = 5  # NovelAI V4/V4.5's 5x5 position grid: columns A-E, rows 1-5
+POINT_SIGMA = (0.15, 0.3)  # a point's area, as a Gaussian's spread across and down the image
 
 
 def auto_boxes(count: int) -> list[Box]:
     """NovelAI's "AI's Choice", done the regional-prompting way: equal columns, left to right."""
     return [(i / count, 0.0, (i + 1) / count, 1.0) for i in range(count)]
+
+
+def center(shape) -> tuple:
+    """A box's or a point's center."""
+    return tuple(shape) if len(shape) == 2 else ((shape[0] + shape[2]) / 2, (shape[1] + shape[3]) / 2)
+
+
+def parse_cell(text):
+    """'C3' -> the point at that cell's center, or None."""
+    m = re.fullmatch(r"\s*([A-Ea-e])([1-5])\s*", str(text or ""))
+    if not m:
+        return None
+    return ((ord(m.group(1).upper()) - ord("A") + 0.5) / GRID, (int(m.group(2)) - 0.5) / GRID)
+
+
+def format_cell(shape) -> str:
+    """The grid cell a box's or point's center falls in: 'C3'."""
+    x, y = center(shape)
+    return f"{chr(ord('A') + min(int(x * GRID), GRID - 1))}{min(int(y * GRID), GRID - 1) + 1}"
+
+
+def default_cells(count: int) -> list[str]:
+    """Where Grid puts characters that have no cell yet: spread across the middle row, in card
+    order, like AI's Choice."""
+    return [f"{chr(ord('A') + min(int((k + 0.5) / count * GRID), GRID - 1))}3" for k in range(count)]
 
 
 def _blur(mask: torch.Tensor, sigma: float) -> torch.Tensor:
@@ -125,13 +154,19 @@ def _blur(mask: torch.Tensor, sigma: float) -> torch.Tensor:
     return out[0, 0]
 
 
-def region_weights(boxes: list[Box], height: int, width: int, blur: float = 1.5) -> torch.Tensor:
+def region_weights(boxes: list[Box], height: int, width: int, blur: float = 1.5, sigma: tuple = POINT_SIGMA) -> torch.Tensor:
     """[1 + len(boxes), height * width] blend weights; row 0 is the background (the base
-    prompt alone). Every token's weights sum to 1, so overlapping boxes share it."""
+    prompt alone). Every token's weights sum to 1, so overlapping places share it. A box is a
+    blurred rectangle; a point a Gaussian, so neighbouring characters overlap gradually."""
     ys = (torch.arange(height) + 0.5) / height
     xs = (torch.arange(width) + 0.5) / width
     masks = []
-    for x0, y0, x1, y1 in boxes:
+    for shape in boxes:
+        if len(shape) == 2:
+            (x, y), (sx, sy) = shape, sigma
+            masks.append(torch.exp(-((xs[None, :] - x) ** 2) / (2 * sx**2) - ((ys[:, None] - y) ** 2) / (2 * sy**2)))
+            continue
+        x0, y0, x1, y1 = shape
         mask = ((ys[:, None] >= y0) & (ys[:, None] < y1) & (xs[None, :] >= x0) & (xs[None, :] < x1)).float()
         masks.append(_blur(mask, blur) if blur > 0 else mask)
     regions = torch.stack(masks) if masks else torch.zeros(0, height, width)
@@ -361,8 +396,8 @@ _ACTION = re.compile(r"\b(source|target|mutual)#\s*([^,\n]+?)\s*(?=,|\n|$)")
 
 
 def _in_image(box: Box) -> str:
-    """Where a box's center sits in the image: 'on the left', 'at the top right', ..."""
-    cx, cy = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
+    """Where a box's or point's center sits in the image: 'on the left', 'at the top right', ..."""
+    cx, cy = center(box)
     side = "left" if cx < 0.4 else "right" if cx > 0.6 else ""
     level = "top" if cy < 0.4 else "bottom" if cy > 0.6 else ""
     if level:
@@ -377,9 +412,9 @@ def position_label(box: Box, boxes: list[Box]) -> str:
     where = [_in_image(b) for b in boxes]
     if len(set(where)) == len(where):
         return _in_image(box)
-    cx, cy = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
-    xs = sorted((b[0] + b[2]) / 2 for b in boxes)
-    ys = sorted((b[1] + b[3]) / 2 for b in boxes)
+    cx, cy = center(box)
+    xs = sorted(center(b)[0] for b in boxes)
+    ys = sorted(center(b)[1] for b in boxes)
     if xs[-1] - xs[0] >= ys[-1] - ys[0]:
         if cx <= xs[0]:
             return "on the left"
