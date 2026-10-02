@@ -2,11 +2,11 @@
 
 Runs the trained Anima IP-Adapter (LuciferTC/Anima-IP-Adapter, "Character_Reference"):
 SigLIP2 encodes the reference and every DiT block gets an extra cross-attention onto it.
-lib_precise_reference/ip_adapter.py holds the port; README.md has the A/B results that
+lib_stagehand/ip_adapter.py holds the port; NOTES.md has the A/B results that
 picked it over the training-free reference-attention method this extension started with.
 
 Anima's attention is wrapped once, for this and Character Prompts, in
-lib_precise_reference/anima_hooks.py; the adapter and encoder live in adapter_runtime.py.
+lib_stagehand/anima_hooks.py; the adapter and encoder live in adapter_runtime.py.
 """
 
 from __future__ import annotations
@@ -26,8 +26,8 @@ from modules.paths_internal import data_path
 from backend.args import dynamic_args
 from backend.patcher.lora import load_lora
 
-from lib_precise_reference import adapter_runtime, anima_hooks
-from lib_precise_reference.ip_adapter import IPReference, IPSession, flatten, has_image, lora_patch_source
+from lib_stagehand import adapter_runtime, anima_hooks
+from lib_stagehand.ip_adapter import IPReference, IPSession, flatten, has_image, lora_patch_source
 
 anima_hooks.install()
 
@@ -366,7 +366,7 @@ class PreciseReference(scripts.Script):
 
         unet = unet.clone()
         # The checkpoint's LoRA covers self_attn, cross_attn and mlp; all of it is loaded.
-        # (Without it the adapter copies the reference's pose -- see README.)
+        # (Without it the adapter copies the reference's pose -- see NOTES.md.)
         alpha = metadata.get("lora_alpha")
         source, to_load = lora_patch_source(lora, float(alpha) if alpha else None)
         patches, _ = load_lora(source, to_load)

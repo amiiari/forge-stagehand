@@ -3,7 +3,7 @@
 //   "Stagehand" fold-out. Its header has a pill per feature that switches it on or off -- also
 //   while the fold-out is closed -- and an off feature's section is hidden;
 // - a prompt that carries characters -- Set Queue's "Restore template" (marked ⟦n⟧), or text
-//   pasted from an image's PNG info ("Character 1 (Ruby): ...") -- is split into the cards;
+//   pasted from an image's PNG info ("Character 1 (Ava): ...") -- is split into the cards;
 // - with "AI's Choice" off, the characters are placed by hand over the output image: Boxes
 //   (drag a box to move it, its corner to resize; "x0 y0 x1 y1", fractions of the image) or
 //   Grid (NovelAI V4.5's 5x5 grid: drag a dot to a cell; "C3"). The result lands in the

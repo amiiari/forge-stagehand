@@ -1,7 +1,7 @@
 """Character Prompts — NovelAI-style multi-character prompting for Anima, in Forge Neo.
 
 A box per character (prompt + Undesired Content), placed by "AI's Choice" (equal columns),
-by boxes dragged over the output image, or on NovelAI's 5x5 grid. lib_precise_reference/characters.py has the
+by boxes dragged over the output image, or on NovelAI's 5x5 grid. lib_stagehand/characters.py has the
 regional attention and the prompt plumbing; this file is the UI and the Forge wiring:
 
   before_process        merge the boxes into the prompt with markers, so Set Queue words
@@ -24,8 +24,8 @@ import gradio as gr
 from modules import processing, prompt_parser, script_callbacks, scripts, sd_samplers
 from modules.processing_scripts.comments import strip_comments
 
-from lib_precise_reference import anima_hooks
-from lib_precise_reference.characters import (
+from lib_stagehand import anima_hooks
+from lib_stagehand.characters import (
     RegionSession,
     auto_boxes,
     center,
@@ -72,7 +72,9 @@ character gets the part of the image nearest its dot. Good for layouts columns c
 (bunk beds), diagonal. Put a character's cell where its <i>head</i> will be. Both scale with the image.</li>
 <li><b>Interactions:</b> <code>source#hug</code> in the box of the one doing it, <code>target#hug</code> in the
 box of the one it's done to, <code>mutual#kiss</code> in both for a shared action. If it comes out the wrong way
-round on every seed, swap the two cards (&uarr; &darr;): some poses have a side the model likes to put the doer on.</li>
+round on every seed, swap the two cards (&uarr; &darr;): some poses have a side the model likes to put the doer on.
+The model also tends to give the passive role (carried, lying down) to the softer-looking outfit, which no card
+order fixes: re-roll.</li>
 <li><b>Face</b> (ADetailer): leave it on <i>auto</i>, and each face gets repainted with its own character's prompt.
 Pick "Nth from left" only if a face got the wrong character.</li>
 </ol>
@@ -467,8 +469,16 @@ def _face_prompts(face, i2i, j):
 def _hook_adetailer_faces():
     for data in scripts.scripts_data:
         cls = data.script_class
-        if Path(data.path).stem != "!adetailer" or not all(hasattr(cls, a) for a in ("pred_preprocessing", "i2i_prompts_replace", "get_prompt")):
+        if Path(data.path).stem != "!adetailer":
             continue
+        if not all(hasattr(cls, a) for a in ("pred_preprocessing", "i2i_prompts_replace", "get_prompt")):
+            # an ADetailer update renamed what's wrapped below; without this, faces would
+            # quietly get the main prompt (ui() runs per tab, so say it once)
+            if not getattr(_hook_adetailer_faces, "warned", False):
+                _hook_adetailer_faces.warned = True
+                print("[Character Prompts] WARNING: this ADetailer version doesn't have the functions "
+                      "per-character faces hook into. ADetailer will give every face the main prompt.")
+            return
         if getattr(cls.pred_preprocessing, "_nai_hooked", False):
             return
         _install_infotext(data.module)  # its own from-import of create_infotext ("-ad-before" images)

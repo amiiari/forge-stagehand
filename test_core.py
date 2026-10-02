@@ -7,7 +7,7 @@ import numpy as np
 import torch
 from PIL import Image
 
-from lib_precise_reference.ip_adapter import (
+from lib_stagehand.ip_adapter import (
     AnimaIPAdapter,
     IPReference,
     IPSession,
@@ -109,7 +109,7 @@ def test_letterbox():
 
 
 def test_markers():
-    from lib_precise_reference.characters import has_marks, merge, split
+    from lib_stagehand.characters import has_marks, merge, split
 
     parts = {1: "girl, blonde hair", 2: "boy, tall"}
     merged = merge("2girls, park,\nnight", parts)
@@ -137,7 +137,7 @@ def test_markers():
 
 
 def test_region_weights():
-    from lib_precise_reference.characters import auto_boxes, region_weights
+    from lib_stagehand.characters import auto_boxes, region_weights
 
     weights = region_weights(auto_boxes(2), 4, 8, blur=0).reshape(3, 4, 8)
     assert torch.allclose(weights.sum(0), torch.ones(4, 8))
@@ -152,7 +152,7 @@ def test_region_weights():
 
 
 def test_region_context():
-    from lib_precise_reference.characters import real_length, region_context
+    from lib_stagehand.characters import real_length, region_context
 
     base = torch.zeros(2, 1, 512, 4)
     base[0, 0, :3], base[1, 0, :5] = 1.0, 2.0
@@ -191,7 +191,7 @@ class FakeCross(torch.nn.Module):
 
 
 def test_region_session():
-    from lib_precise_reference.characters import RegionSession, region_context
+    from lib_stagehand.characters import RegionSession, region_context
 
     torch.manual_seed(0)
     module = FakeCross(4)
@@ -235,7 +235,7 @@ def test_region_session():
 
 
 def test_translate_actions():
-    from lib_precise_reference.characters import auto_boxes, translate_actions
+    from lib_stagehand.characters import auto_boxes, translate_actions
 
     prompts = ["girl, blonde hair, source#hug", "girl, black hair, target#hug, smiling"]
     cleaned, phrases = translate_actions(prompts, auto_boxes(2))
@@ -249,7 +249,7 @@ def test_translate_actions():
 
 
 def test_png_info_lines():
-    from lib_precise_reference.characters import read, show
+    from lib_stagehand.characters import read, show
 
     base = "masterpiece, 2girls,\ncafe"
     chars = [(1, "Fran (sait0moriyama)", None, "girl, source#hug, [a::7]"), (2, "", "0.500 0.000 1.000 0.500", "girl,\nsecond line"), (3, "x", None, "")]
@@ -272,7 +272,7 @@ def test_png_info_lines():
 
 
 def test_grid_points():
-    from lib_precise_reference.characters import default_cells, format_cell, parse_cell, position_label, read, region_weights, show
+    from lib_stagehand.characters import default_cells, format_cell, parse_cell, position_label, read, region_weights, show
 
     assert parse_cell("C3") == (0.5, 0.5) and parse_cell("a1") == (0.1, 0.1)
     assert parse_cell("F1") is None and parse_cell("C6") is None and parse_cell("") is None
@@ -291,15 +291,15 @@ def test_grid_points():
     assert w[1, 1, 5] > 0.99 and w[2, 9, 5] > 0.99 and w[1, 1, 0] > 0.99
     assert position_label(parse_cell("B3"), [parse_cell("B3"), parse_cell("D3")]) == "on the left"
     # PNG info lines carry a cell instead of a box
-    text = show("base", [(1, "Ruby", "B2", "girl, black hair")])
-    assert text == "base\n\nCharacter 1 (Ruby) at B2: girl, black hair"
-    assert read(text)[1] == {1: {"name": "Ruby", "box": "B2", "text": "girl, black hair"}}
+    text = show("base", [(1, "Ava", "B2", "girl, black hair")])
+    assert text == "base\n\nCharacter 1 (Ava) at B2: girl, black hair"
+    assert read(text)[1] == {1: {"name": "Ava", "box": "B2", "text": "girl, black hair"}}
 
 
 def test_has_image():
     import numpy as np
 
-    from lib_precise_reference.ip_adapter import has_image
+    from lib_stagehand.ip_adapter import has_image
 
     # a UI upload is an array; comparing it to "" raised and silently disabled every reference
     assert has_image(np.zeros((4, 4, 4), np.uint8))
@@ -308,7 +308,7 @@ def test_has_image():
 
 
 def test_match_faces():
-    from lib_precise_reference.characters import auto_boxes, match_faces, region_weights
+    from lib_stagehand.characters import auto_boxes, match_faces, region_weights
 
     columns = region_weights(auto_boxes(2), 32, 32)[1:].reshape(2, 32, 32)
     left, right, far_right = (100, 100, 300, 300), (700, 120, 900, 320), (950, 50, 1000, 100)
@@ -340,7 +340,7 @@ def test_match_faces():
 
 
 def test_placement():
-    from lib_precise_reference.characters import auto_boxes, placement
+    from lib_stagehand.characters import auto_boxes, placement
 
     assert placement(["boy, tall", "girl, short"], auto_boxes(2)) == ["a boy on the left", "a girl on the right"]
     assert placement(["girl", "other thing"], [(0, 0, 1, 0.4), (0, 0.6, 1, 1)]) == ["a girl at the top", "a character at the bottom"]
@@ -354,7 +354,7 @@ def test_placement():
 
 
 def test_position_words_in_actions():
-    from lib_precise_reference.characters import translate_actions
+    from lib_stagehand.characters import translate_actions
 
     stacked = [(0.45, 0.25, 1, 1), (0.5, 0, 1, 0.55)]
     _, phrases = translate_actions(["girl, b, source#piggyback", "girl, c, target#piggyback"], stacked)

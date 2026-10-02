@@ -15,7 +15,7 @@ from modules.paths import models_path
 from backend import memory_management
 from backend.patcher.base import ModelPatcher
 
-from lib_precise_reference.ip_adapter import encode_reference, image_key, load_adapter
+from lib_stagehand.ip_adapter import encode_reference, image_key, load_adapter
 
 ADAPTER_DIR = os.path.join(models_path, "precise_reference")
 ADAPTER_FILE = "ip_adapter-Character_Reference-10.safetensors"
