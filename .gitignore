@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+
+# evidence images: large, and the test references are other people's art
+ab_grids/
+test_refs/
+
+# dev-only
+experiment.json

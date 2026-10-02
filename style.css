@@ -1,0 +1,308 @@
+/* NovelAI-style panels. Scoped to .nai-panel so the rest of Forge is untouched; the
+   Gradio theme variables are overridden here and inherited by every component inside. */
+
+.nai-panel {
+    --nai-bg: #12142a;
+    --nai-card: #1b1e3c;
+    --nai-input: #0e1022;
+    --nai-border: #2e3260;
+    --nai-text: #f2efe4;
+    --nai-muted: #a3a6c8;
+    --nai-gold: #f5f3c2;
+    --nai-gold-deep: #e6d58a;
+
+    --body-text-color: var(--nai-text);
+    --body-text-color-subdued: var(--nai-muted);
+    --background-fill-primary: var(--nai-card);
+    --background-fill-secondary: var(--nai-bg);
+    --block-background-fill: var(--nai-card);
+    --block-border-color: var(--nai-border);
+    --block-label-background-fill: var(--nai-card);
+    --block-label-text-color: var(--nai-muted);
+    --block-title-text-color: var(--nai-text);
+    --block-info-text-color: var(--nai-muted);
+    --border-color-primary: var(--nai-border);
+    --border-color-accent: var(--nai-gold);
+    --input-background-fill: var(--nai-input);
+    --input-background-fill-focus: var(--nai-input);
+    --input-border-color: var(--nai-border);
+    --input-border-color-focus: var(--nai-gold-deep);
+    --input-placeholder-color: var(--nai-muted);
+    --color-accent: var(--nai-gold);
+    --color-accent-soft: rgba(245, 243, 194, 0.15);
+    --slider-color: var(--nai-gold);
+    --checkbox-background-color-selected: var(--nai-gold);
+    --button-secondary-background-fill: var(--nai-input);
+    --button-secondary-background-fill-hover: var(--nai-border);
+    --button-secondary-text-color: var(--nai-text);
+    --button-secondary-border-color: var(--nai-border);
+    --neutral-400: var(--nai-muted);
+
+    background: var(--nai-bg) !important;
+    border: 1px solid var(--nai-border);
+    border-radius: 10px;
+    padding: 8px 10px !important;
+    margin-top: 6px;
+    gap: 6px !important;
+    color: var(--nai-text);
+}
+
+.nai-panel .nai-head {
+    align-items: center;
+    gap: 8px;
+}
+
+.nai-panel .nai-title {
+    color: var(--nai-text);
+    font-weight: 600;
+    font-size: 15px;
+    letter-spacing: 0.02em;
+    padding: 2px 4px;
+}
+
+.nai-panel .nai-head .gradio-html,
+.nai-panel .nai-head .block {
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+}
+
+.nai-panel button.nai-add {
+    background: var(--nai-gold) !important;
+    color: var(--nai-bg) !important;
+    border: none !important;
+    border-radius: 999px !important;
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 1;
+    min-width: 34px !important;
+    max-width: 34px;
+    height: 34px;
+    padding: 0 !important;
+}
+
+.nai-panel button.nai-add:hover {
+    background: var(--nai-gold-deep) !important;
+}
+
+.nai-panel .nai-card {
+    background: var(--nai-card) !important;
+    border: 1px solid var(--nai-border) !important;
+    border-radius: 8px !important;
+    padding: 6px !important;
+}
+
+.nai-panel .nai-card-head {
+    align-items: center;
+    gap: 6px;
+}
+
+.nai-panel button.nai-icon {
+    background: transparent !important;
+    border: none !important;
+    color: var(--nai-muted) !important;
+    font-size: 16px;
+    min-width: 34px !important;
+    max-width: 34px;
+    padding: 0 !important;
+}
+
+.nai-panel button.nai-icon:hover {
+    color: #ff8a8a !important;
+}
+
+.nai-panel .nai-ref-image {
+    border-radius: 6px !important;
+    overflow: hidden;
+    background: var(--nai-input) !important;
+}
+
+.nai-panel .nai-hint {
+    color: var(--nai-muted);
+    font-weight: 400;
+    font-size: 12px;
+    letter-spacing: 0;
+    margin-left: 8px;
+}
+
+/* Character Prompts: one color per character, shared by its card and its position box. */
+.nai-char-1 { --nai-char: #ff7aa8; }
+.nai-char-2 { --nai-char: #6ab0ff; }
+.nai-char-3 { --nai-char: #6fe3a0; }
+.nai-char-4 { --nai-char: #ffb36b; }
+.nai-char-5 { --nai-char: #b48cff; }
+.nai-char-6 { --nai-char: #5fd6d6; }
+
+.nai-panel .nai-char-card {
+    border-left: 3px solid var(--nai-char) !important;
+}
+
+.nai-panel .nai-char-name input {
+    background: transparent !important;
+    border: none !important;
+    color: var(--nai-char) !important;
+    font-weight: 600;
+}
+
+.nai-panel .nai-char-on {
+    max-width: 64px;
+    background: transparent !important;
+    border: none !important;
+}
+
+.nai-panel .nai-char-on label > span {
+    color: var(--nai-muted);
+    font-size: 12px;
+}
+
+.nai-panel .nai-auto {
+    background: transparent !important;
+    border: none !important;
+}
+
+.nai-panel .nai-char-tabs {
+    background: transparent !important;
+    border: none !important;
+}
+
+.nai-hidden {
+    display: none !important;
+}
+
+/* "How to use": a native <details>, collapsed under each panel's title */
+.nai-panel .nai-help {
+    margin: -4px 0 2px;
+}
+
+.nai-panel .nai-help summary {
+    cursor: pointer;
+    width: max-content;
+    color: var(--nai-muted);
+    font-size: 12px;
+}
+
+.nai-panel .nai-help summary:hover,
+.nai-panel .nai-help[open] summary {
+    color: var(--nai-gold);
+}
+
+.nai-panel .nai-help > div {
+    margin-top: 6px;
+    padding: 8px 12px;
+    border: 1px solid var(--nai-border);
+    border-radius: 8px;
+    background: var(--nai-input);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.nai-panel .nai-help ol {
+    margin: 0 0 6px 18px;
+    padding: 0;
+}
+
+.nai-panel .nai-help li {
+    margin: 3px 0;
+}
+
+.nai-panel .nai-help p {
+    margin: 4px 0 0;
+    color: var(--nai-muted);
+}
+
+.nai-panel .nai-help code {
+    padding: 0 4px;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.3);
+}
+
+/* the canvas of the next image, outlined so a changed width x height is visible */
+.nai-positions {
+    position: absolute;
+    z-index: 20;
+    pointer-events: none;
+    box-sizing: border-box;
+    outline: 1px dashed rgba(245, 243, 194, 0.55);
+}
+
+/* the box body lets clicks through to the gallery; drag by the name tab, resize by the dot */
+.nai-positions .nai-pos-box {
+    position: absolute;
+    box-sizing: border-box;
+    pointer-events: none;
+    touch-action: none;
+    border: 2px solid var(--nai-char);
+    background: color-mix(in srgb, var(--nai-char) 18%, transparent);
+    border-radius: 6px;
+}
+
+.nai-positions .nai-c1 { --nai-char: #ff7aa8; }
+.nai-positions .nai-c2 { --nai-char: #6ab0ff; }
+.nai-positions .nai-c3 { --nai-char: #6fe3a0; }
+.nai-positions .nai-c4 { --nai-char: #ffb36b; }
+.nai-positions .nai-c5 { --nai-char: #b48cff; }
+.nai-positions .nai-c6 { --nai-char: #5fd6d6; }
+
+.nai-positions .nai-pos-label {
+    position: absolute;
+    left: 0;
+    top: 0;
+    padding: 1px 8px 2px;
+    border-radius: 4px 0 6px 0;
+    background: var(--nai-char);
+    pointer-events: auto;
+    cursor: move;
+    color: #fff;
+    font-weight: 700;
+    font-size: 13px;
+    text-shadow: 0 0 3px #000, 0 0 3px #000;
+}
+
+.nai-positions .nai-pos-handle {
+    position: absolute;
+    right: -6px;
+    bottom: -6px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--nai-char);
+    pointer-events: auto;
+    cursor: nwse-resize;
+}
+
+/* "Stagehand": one fold-out holding both panels, saying what's active while it's closed */
+.nai-stagehand {
+    margin-top: 6px;
+    border: 1px solid #2e3260;
+    border-radius: 10px;
+    background: #12142a;
+}
+
+.nai-stagehand > summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    cursor: pointer;
+    color: #f2efe4;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+.nai-stagehand > summary::marker {
+    color: #f5f3c2;
+}
+
+.nai-stagehand .nai-stagehand-count {
+    color: #a3a6c8;
+    font-weight: 400;
+    font-size: 12px;
+}
+
+.nai-stagehand .nai-stagehand-count.nai-active {
+    color: #f5f3c2;
+}
+
+.nai-stagehand > .nai-panel {
+    margin: 0 8px 8px;
+}
