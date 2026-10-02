@@ -32,10 +32,10 @@ else. Precise Reference needs two models in `models\precise_reference\` (about 2
 
 ## Character Prompts
 
-**+** adds a character (up to 6). Each card has:
+**+ Add character** adds a card (up to 6). Each card has:
 
-- an **On** pill in the character's color: off leaves the character out of the next image
-  without deleting it;
+- an **On** / **Off** pill in the character's color: Off leaves the character out of the next
+  image without deleting it;
 - a name;
 - a **Face** dropdown for ADetailer (leave it on auto; see below);
 - ↑ / ↓ to reorder, ⧉ to duplicate, 🗑 to delete;
@@ -135,7 +135,7 @@ Negative prompt: worst quality, ...
 
 ## Precise Reference
 
-**+** adds a reference card (up to 4). Drop an image in, then:
+**+ Add reference** adds a card (up to 4). Drop an image in, then:
 
 - **Type**: NovelAI's three. It only sets the starting Strength: 1.0 for Character and
   Character & Style, 0.5 for Style.

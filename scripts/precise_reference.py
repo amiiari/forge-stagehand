@@ -38,7 +38,7 @@ REFERENCE_TYPES = tuple(TYPE_STRENGTH)
 # For people who've never used NovelAI: collapsed under the panel's title until asked for.
 HELP = """<details class="nai-help"><summary>How to use</summary><div>
 <ol>
-<li><b>+</b> adds a reference card: an image of a character to keep (face, hair, outfit), an art style to copy, or
+<li><b>+ Add reference</b> adds a card: an image of a character to keep (face, hair, outfit), an art style to copy, or
 a composition to follow. Up to 4 cards, all blended together -- e.g. the same character from several angles. Your
 prompt still sets the scene. For solo images or the whole image: two different characters' references blend into
 one character (NovelAI's do the same).</li>
@@ -234,10 +234,11 @@ class PreciseReference(scripts.Script):
             # The feature's on/off: shown as a pill in the Stagehand header (javascript/stagehand.js).
             on = gr.Checkbox(value=True, label="Precise Reference", elem_id=f"nai_{tab}_pr_on", elem_classes=["nai-hidden"])
             with gr.Row(elem_classes=["nai-head"]):
-                gr.HTML('<div class="nai-section">References</div>')
+                gr.HTML('<div class="nai-section">References</div>', elem_classes=["nai-title-cell"])
                 in_adetailer = gr.Checkbox(value=False, label="also in ADetailer", elem_id=f"nai_{tab}_pr_adetailer", elem_classes=["nai-auto"], scale=0, min_width=150)
-                gr.HTML('<span class="nai-hint">clean images on plain backgrounds work best</span>')
-                add = gr.Button("+", elem_classes=["nai-add"], min_width=40, scale=0)
+                gr.HTML('<span class="nai-hint">clean images on plain backgrounds work best</span>', elem_classes=["nai-title-cell"])
+                gr.HTML("", elem_classes=["nai-spacer"])  # pushes the add button to the right
+                add = gr.Button("+ Add reference", elem_classes=["nai-add"], min_width=40, scale=0)
             shown = gr.State([False] * MAX_REFS)
             cards = []
             buttons = [add]

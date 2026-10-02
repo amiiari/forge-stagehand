@@ -119,9 +119,14 @@
             const panel = el(`nai_${id}_${feature}`);
             if (panel) panel.style.display = on ? "" : "none";
         }
-        // the Boxes / Grid switch only matters with AI's Choice off
+        // an open fold-out with both features off would be empty: say why (style.css)
+        box.classList.toggle("nai-all-off", !FEATURES.some(([feature]) => featureOn(id, feature)));
+        // the Boxes / Grid switch, and where the positions go, only matter with AI's Choice off
+        const auto = checkbox(`nai_${id}_chars_auto`)?.checked;
         const manual = el(`nai_${id}_chars_manual`);
-        if (manual) manual.style.display = checkbox(`nai_${id}_chars_auto`)?.checked ? "none" : "";
+        if (manual) manual.style.display = auto ? "none" : "";
+        const where = el(`nai_${id}_chars_where`);
+        if (where) where.style.display = auto ? "none" : "block";
     }
 
     // ------------------------------------------------------------------ prompts with characters in them
@@ -403,9 +408,17 @@
             el(`nai_${id}_chars_manual`)?.querySelectorAll("input[type=radio]").forEach((radio) => {
                 radio.addEventListener("change", () => radio.checked && convert(id, radio.value));
             });
-            el(`nai_${id}_chars`)?.querySelectorAll(".nai-char-on").forEach((on) => {
-                on.title = "Switch this character off to leave it out of the next image without deleting it";
-            });
+            const tips = {
+                ".nai-char-on": "Switch this character off to leave it out of the next image without deleting it",
+                ".nai-char-name": "Name (optional): shown in the image's PNG info and on its position box",
+                ".nai-char-face": "ADetailer: which detected face gets this character's prompt. auto matches them by position",
+                [`#nai_${id}_chars_auto`]: "On: the characters stand left to right in card order. Off: place them yourself, on the output image",
+                [`#nai_${id}_chars_manual`]: "Boxes: drag and resize a box per character. Grid: NovelAI's 5x5 grid, a dot where each character's head goes",
+                [`#nai_${id}_pr_adetailer`]: "Also use the references in ADetailer's face pass, for this generation",
+            };
+            for (const [selector, tip] of Object.entries(tips)) {
+                el(`nai_${id}_stagehand`)?.querySelectorAll(selector).forEach((node) => (node.title = tip));
+            }
         }
         // Cheap and robust against everything that can change the layout (cards, toggles,
         // a new image, resizing); positions aren't re-placed while one is being dragged.

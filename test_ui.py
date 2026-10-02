@@ -101,6 +101,9 @@ async def check_characters(page, tmp):
     for k in (1, 2):
         await page.js("gradioApp().querySelector('#nai_t2i_chars .nai-add').click()")
         assert await page.wait(f"!!gradioApp().querySelector('#nai_t2i_char{k}_prompt textarea')", 10), f"+ didn't add card {k}"
+        # a textbox typed into the moment it appears isn't wired up yet: its text would show
+        # but never reach the server (a person can't type that fast)
+        await asyncio.sleep(1.5)
     await page.type("#txt2img_prompt textarea", "2girls, park")
     await page.type("#nai_t2i_char1_prompt textarea", CHAR1)
     await page.type("#nai_t2i_char2_prompt textarea", CHAR2)

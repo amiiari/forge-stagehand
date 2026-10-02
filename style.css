@@ -59,18 +59,36 @@
     padding: 0 !important;
 }
 
+/* a section's header row: the title and its controls on the left, the add button on the right */
+.nai-panel .nai-head > .nai-title-cell {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    min-width: 0 !important;
+}
+
+.nai-panel .nai-head > .nai-spacer {
+    flex: 1 1 0 !important;
+    min-width: 0 !important;
+}
+
+/* "place them on the output image": shown by stagehand.js while AI's Choice is off */
+.nai-panel .nai-head > .nai-where {
+    display: none;
+}
+
 .nai-panel button.nai-add {
     background: var(--nai-gold) !important;
     color: var(--nai-bg) !important;
     border: none !important;
     border-radius: 999px !important;
-    font-size: 20px;
+    font-size: 13px;
     font-weight: 700;
     line-height: 1;
-    min-width: 34px !important;
-    max-width: 34px;
-    height: 34px;
-    padding: 0 !important;
+    flex: 0 0 auto !important;
+    min-width: max-content !important;
+    height: 30px;
+    padding: 0 14px !important;
+    white-space: nowrap;
 }
 
 .nai-panel button.nai-add:hover {
@@ -129,11 +147,42 @@
     border-left: 3px solid var(--nai-char) !important;
 }
 
+/* the card's name: looks like a title, underlined on hover so it reads as editable */
 .nai-panel .nai-char-name input {
     background: transparent !important;
     border: none !important;
+    border-bottom: 1px dashed transparent !important;
+    border-radius: 0 !important;
     color: var(--nai-char) !important;
     font-weight: 600;
+}
+
+.nai-panel .nai-char-name input:hover,
+.nai-panel .nai-char-name input:focus {
+    border-bottom-color: var(--nai-char) !important;
+}
+
+/* ADetailer's face pick: rarely changed, so kept quiet until hovered */
+.nai-panel .nai-char-face {
+    background: transparent !important;
+    border: none !important;
+    max-width: 150px;
+}
+
+.nai-panel .nai-char-face .wrap {
+    background: transparent !important;
+    border: 1px solid transparent !important;
+    box-shadow: none !important;
+}
+
+.nai-panel .nai-char-face:hover .wrap,
+.nai-panel .nai-char-face:focus-within .wrap {
+    border-color: var(--nai-border) !important;
+}
+
+.nai-panel .nai-char-face input {
+    color: var(--nai-muted) !important;
+    font-size: 12px !important;
 }
 
 /* a character's on/off: a pill in the character's color, filled while it's on */
@@ -176,6 +225,24 @@
 
 .nai-panel .nai-char-on label:has(input:checked) > span {
     color: #14152b;
+}
+
+/* the pill says what the character is: "Off" while it's left out, and its card dims */
+.nai-panel .nai-char-on label > span {
+    font-size: 0 !important;
+}
+
+.nai-panel .nai-char-on label > span::after {
+    content: "Off";
+    font-size: 12px;
+}
+
+.nai-panel .nai-char-on label:has(input:checked) > span::after {
+    content: "On";
+}
+
+.nai-panel .nai-char-card:has(.nai-char-on input:not(:checked)) .nai-char-tabs {
+    opacity: 0.45;
 }
 
 /* Boxes / Grid, shown with AI's Choice off */
@@ -362,8 +429,34 @@
     letter-spacing: 0.02em;
 }
 
-.nai-stagehand > summary::marker {
+/* the open/closed arrow (a flex summary loses the native marker) */
+.nai-stagehand > summary {
+    list-style: none;
+}
+
+.nai-stagehand > summary::-webkit-details-marker {
+    display: none;
+}
+
+.nai-stagehand > summary::before {
+    content: "\25B8";
+    display: inline-block;
+    width: 10px;
     color: #f5f3c2;
+    transition: transform 0.15s;
+}
+
+.nai-stagehand[open] > summary::before {
+    transform: rotate(90deg);
+}
+
+/* open, with both features off: nothing to show but how to switch one on */
+.nai-stagehand.nai-all-off[open]::after {
+    content: "Both features are off. Click a pill above to switch one on.";
+    display: block;
+    padding: 0 14px 10px;
+    color: #a3a6c8;
+    font-size: 12px;
 }
 
 /* a feature's on/off pill, in the header: works with the fold-out closed */
@@ -385,19 +478,23 @@
     border-color: #e6d58a;
 }
 
+/* off: a hollow dot and dim text; on: lit, with a filled dot and a tinted background */
 .nai-stagehand .nai-pill .nai-pill-dot {
+    box-sizing: border-box;
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: #2e3260;
+    border: 1px solid #5a5e8c;
 }
 
 .nai-stagehand .nai-pill.nai-on {
     border-color: #f5f3c2;
     color: #f5f3c2;
+    background: rgba(245, 243, 194, 0.12);
 }
 
 .nai-stagehand .nai-pill.nai-on .nai-pill-dot {
+    border-color: #f5f3c2;
     background: #f5f3c2;
 }
 

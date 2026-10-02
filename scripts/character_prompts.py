@@ -61,8 +61,8 @@ HELP = """<details class="nai-help"><summary>How to use</summary><div>
 <ol>
 <li><b>Main prompt:</b> the scene, the style, and how many people (<code>2girls</code>, <code>1boy, 1girl</code>).
 Don't describe the characters there.</li>
-<li><b>+</b> adds a character. Describe only that character in its box: hair, eyes, outfit, expression.
-Whatever that character must not have goes under <b>Undesired Content</b>. A card's <b>On</b> pill switches that
+<li><b>+ Add character</b> adds a card. Describe only that character in its box: hair, eyes, outfit, expression.
+Whatever that character must not have goes under <b>Undesired Content</b>. A card's <b>On</b> / <b>Off</b> pill switches that
 character off without deleting it; the <b>Character Prompts</b> pill in the Stagehand header does that for all of
 them (it works with Stagehand closed).</li>
 <li><b>AI's Choice</b> on: the characters stand left to right in card order (&uarr; &darr; to reorder).
@@ -532,11 +532,13 @@ class CharacterPrompts(scripts.Script):
             # The feature's on/off: shown as a pill in the Stagehand header (javascript/stagehand.js).
             on = gr.Checkbox(value=True, label="Character Prompts", elem_id=f"nai_{tab}_chars_on", elem_classes=["nai-hidden"])
             with gr.Row(elem_classes=["nai-head"]):
-                gr.HTML('<div class="nai-section">Characters</div>')
+                gr.HTML('<div class="nai-section">Characters</div>', elem_classes=["nai-title-cell"])
                 auto = gr.Checkbox(value=True, label="AI's Choice", elem_id=f"nai_{tab}_chars_auto", elem_classes=["nai-auto"], scale=0, min_width=120)
                 manual = gr.Radio(list(MANUAL), value=MANUAL[0], show_label=False, container=False, elem_id=f"nai_{tab}_chars_manual", elem_classes=["nai-manual"], scale=0, min_width=160)
-                gr.HTML("")  # spacer: pushes + to the right
-                add = gr.Button("+", elem_classes=["nai-add"], min_width=40, scale=0)
+                # with AI's Choice off, where the positions are placed (stagehand.js shows it)
+                gr.HTML('<span class="nai-hint">place them on the output image</span>', elem_id=f"nai_{tab}_chars_where", elem_classes=["nai-title-cell", "nai-where"])
+                gr.HTML("", elem_classes=["nai-spacer"])  # pushes the add button to the right
+                add = gr.Button("+ Add character", elem_classes=["nai-add"], min_width=40, scale=0)
             shown = gr.State([False] * MAX_CHARS)
 
             for i in range(MAX_CHARS):
