@@ -67,9 +67,9 @@ character off without deleting it; the <b>Character Prompts</b> pill in the Stag
 them (it works with Stagehand closed).</li>
 <li><b>AI's Choice</b> on: the characters stand left to right in card order (&uarr; &darr; to reorder).
 Off: place them yourself, over the output image. <b>Boxes</b>: drag a box by its name tab, resize it by its corner
-dot. <b>Grid</b>: NovelAI's 5&times;5 grid; drag a character's dot to a cell, which marks its center. Grid points blend
-into each other more softly, so characters touching or overlapping tend to look more natural. Both scale with the
-image, so they keep working at any size.</li>
+dot. <b>Grid</b>: NovelAI's 5&times;5 grid; drag a character's dot to a cell, which marks its center, and each
+character gets the part of the image nearest its dot. Good for layouts columns can't do: one above the other
+(bunk beds), diagonal. Put a character's cell where its <i>head</i> will be. Both scale with the image.</li>
 <li><b>Interactions:</b> <code>source#hug</code> in the box of the one doing it, <code>target#hug</code> in the
 box of the one it's done to, <code>mutual#kiss</code> in both for a shared action. If it comes out the wrong way
 round on every seed, swap the two cards (&uarr; &darr;): some poses have a side the model likes to put the doer on.</li>

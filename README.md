@@ -65,9 +65,21 @@ even while hugging.
     move it, and by its corner dot to resize. Clicks elsewhere reach the image. Boxes may
     overlap; the overlap is shared.
   - **Grid**: NovelAI V4.5's 5×5 grid. Each character is a dot; drag it to a cell (it snaps),
-    and the cell (`C3`) marks the character's *center*. Around it the character gets a soft
-    area (a Gaussian about 0.15 of the width across and 0.3 of the height down,
-    `POINT_SIGMA`), so neighbours blend into each other instead of meeting at an edge.
+    and the cell (`C3`) marks the character's *center*. The image is split between the dots:
+    every spot belongs to the nearest one, with a narrow blend at the border (`OWN_SIGMA`).
+    Two dots side by side are the AI's Choice columns. Stacked or diagonal dots give layouts
+    columns can't. Bunk beds with Lan in C2 above Annie in C4 came out right 3/3, where columns
+    lost Lan 2/3 (`ab_grids/29`).
+    - **Place a cell where the character's head will be.** Looks follow the region a spot falls
+      in, and the head is where looks are decided. In a piggyback both heads end up near the
+      top, so Lan in C2 above Rebecca in C4 gave both of them Lan's look (`ab_grids/27b`).
+      Side by side works for that pose.
+    - **Tested and dropped:**
+      - a soft area per dot, where neighbours blend: looks leaked where kissing faces meet
+        (Ren lost her blue hair 3/3, `ab_grids/26`);
+      - a fade toward the image's edges: heads near the top got less of their character
+        (`ab_grids/27`).
+    - Two characters on the *same* cell share everything and merge; give each its own cell.
 - **Positions are proportional:** they're stored as fractions of the image, so the same layout
   applies at any resolution, through hires fix, and with Set Queue's random resolutions.
   - The frame always has the shape of the *next* image (your width × height). It sits on the
