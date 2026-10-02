@@ -36,6 +36,12 @@
         if (input && !input.checked) input.click();
     }
 
+    // Forge's prompt comments (/* */, # and // to the end of the line), when they're enabled
+    function stripComments(text) {
+        if (typeof opts === "undefined" || !opts.enable_prompt_comments) return text;
+        return text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/[^\S\n]*(#|\/\/).*/g, "");
+    }
+
     function characters(id) {
         const out = [];
         if (!featureOn(id, "chars")) return out;
@@ -45,7 +51,7 @@
             if (!card || getComputedStyle(card).display === "none") continue;
             const on = card.querySelector(".nai-char-on input");
             const prompt = field(`nai_${id}_char${n}_prompt`);
-            if ((on && !on.checked) || !prompt || !prompt.value.trim()) continue;
+            if ((on && !on.checked) || !prompt || !stripComments(prompt.value).trim()) continue;
             const name = card.querySelector(".nai-char-name input, .nai-char-name textarea")?.value.trim();
             out.push({n, label: name || `${n}`, input: field(`nai_${id}_char${n}_box`)});
         }
@@ -155,7 +161,9 @@
         return {base: lines.slice(0, first).join("\n").trimEnd(), chars};
     }
 
-    function fill(tab, id, input, kind, parsed) {
+    // exact: from a PNG info, the text is the whole story -- positions (or none: AI's Choice)
+    // and switched-on cards; a ⟦n⟧ template only carries the texts, the cards keep the rest
+    function fill(tab, id, input, kind, parsed, exact) {
         // the pasted characters replace the cards: one the text doesn't mention is emptied
         for (let n = 1; n <= MAX; n++) {
             if (n in parsed.chars) continue;
@@ -166,14 +174,18 @@
             setValue(field(`nai_${id}_char${n}_${kind}`), c.text);
             if (kind !== "prompt") continue;
             if (c.name) setValue(el(`nai_${id}_char${n}`)?.querySelector(".nai-char-name input, .nai-char-name textarea"), c.name);
-            if (c.box) setValue(field(`nai_${id}_char${n}_box`), c.box);
+            if (c.box || exact) setValue(field(`nai_${id}_char${n}_box`), c.box);
+            const cardOn = el(`nai_${id}_char${n}`)?.querySelector(".nai-char-on input");
+            if (exact && cardOn && !cardOn.checked) cardOn.click();
         }
         if (kind === "prompt") {
             const places = Object.values(parsed.chars).map((c) => c.box).filter(Boolean);
+            const auto = checkbox(`nai_${id}_chars_auto`);
             if (places.length) {
-                const auto = checkbox(`nai_${id}_chars_auto`);
                 if (auto?.checked) auto.click();
                 setManual(id, places.some((p) => cell(p)) ? "Grid" : "Boxes");
+            } else if (exact && auto && !auto.checked) {
+                auto.click();
             }
             const on = checkbox(`nai_${id}_chars_on`);
             if (on && !on.checked) on.click();
@@ -194,7 +206,7 @@
             // on paste only: while typing, "Character 1:" would be pulled out mid-sentence
             input?.addEventListener("paste", () => setTimeout(() => {
                 const parsed = readLines(input.value);
-                if (parsed) fill(tab, id, input, kind, parsed);
+                if (parsed) fill(tab, id, input, kind, parsed, true);
             }, 0));
         }
     }
@@ -214,27 +226,31 @@
     const cellName = (col, row) => `${String.fromCharCode(65 + col)}${row + 1}`;
     const cellOf = (x, y) => cellName(Math.min(Math.floor(x * GRID), GRID - 1), Math.min(Math.floor(y * GRID), GRID - 1));
     // where Grid puts a character with no cell yet: across the middle row, in card order
-    const defaultCell = (k, count) => cellName(Math.min(Math.floor(((k + 0.5) / count) * GRID), GRID - 1), 2);
+    // (with more characters than columns, alternating rows 2 and 4; same as characters.default_cells)
+    const defaultCell = (k, count) => cellName(Math.min(Math.floor(((k + 0.5) / count) * GRID), GRID - 1), count <= GRID ? 2 : k % 2 ? 3 : 1);
 
     // Switching Boxes <-> Grid keeps each character where it was: a box becomes the cell its
     // center is in, a cell becomes a box around that point.
+    // Every card, also those switched off or empty, so none keeps the other kind of position.
     function convert(id, manual) {
-        const chars = characters(id);
-        chars.forEach((c, k) => {
-            const value = c.input?.value || "";
+        const count = Math.max(characters(id).length, 2);
+        for (let n = 1; n <= MAX; n++) {
+            const input = field(`nai_${id}_char${n}_box`);
+            const value = input?.value || "";
             if (manual === "Grid") {
                 const box = parse(value);
-                if (box) setValue(c.input, cellOf((box[0] + box[2]) / 2, (box[1] + box[3]) / 2));
+                if (box) setValue(input, cellOf((box[0] + box[2]) / 2, (box[1] + box[3]) / 2));
             } else {
                 const at = cell(value);
-                if (!at) return;
+                if (!at) continue;
                 const x = (at[0] + 0.5) / GRID;
                 const y = (at[1] + 0.5) / GRID;
-                const half = 0.5 / Math.max(chars.length, 2);
-                const box = [Math.max(0, x - half), Math.max(0, y - 0.45), Math.min(1, x + half), Math.min(1, y + 0.45)];
-                setValue(c.input, box.map((v) => v.toFixed(3)).join(" "));
+                // centered on the point, so switching back lands on the same cell
+                const hx = Math.min(0.5 / count, x, 1 - x);
+                const hy = Math.min(0.45, y, 1 - y);
+                setValue(input, [x - hx, y - hy, x + hx, y + hy].map((v) => v.toFixed(3)).join(" "));
             }
-        });
+        }
     }
 
     // The canvas the positions are placed on: always the shape of the NEXT image (the current

@@ -1,7 +1,7 @@
 """Character Prompts — NovelAI-style multi-character prompting for Anima, in Forge Neo.
 
-A box per character (prompt + Undesired Content), placed by "AI's Choice" (equal columns)
-or by boxes dragged over the output image. lib_precise_reference/characters.py has the
+A box per character (prompt + Undesired Content), placed by "AI's Choice" (equal columns),
+by boxes dragged over the output image, or on NovelAI's 5x5 grid. lib_precise_reference/characters.py has the
 regional attention and the prompt plumbing; this file is the UI and the Forge wiring:
 
   before_process        merge the boxes into the prompt with markers, so Set Queue words
@@ -54,7 +54,7 @@ FACE = 5  # ...and of its ADetailer face pick
 NTH = ("1st", "2nd", "3rd", "4th", "5th", "6th")
 FACES = ["Face: auto"] + [f"Face: {nth} from left" for nth in NTH]
 # With AI's Choice off, how the characters are placed by hand: boxes dragged over the output,
-# or NovelAI V4.5's 5x5 grid (a cell per character = its center, with a soft area around it).
+# or NovelAI V4.5's 5x5 grid (a cell per character = its center; nearest cell wins).
 MANUAL = ("Boxes", "Grid")
 # For people who've never used NovelAI: collapsed under the panel's title until asked for.
 HELP = """<details class="nai-help"><summary>How to use</summary><div>
@@ -134,11 +134,13 @@ def _places(characters, auto, manual):
     numbers = [c[0] for c in characters]
     if auto:
         return dict(zip(numbers, auto_boxes(len(numbers))))
+    # Strictly the mode's own kind of position: a leftover of the other kind (a card that was
+    # off while Boxes <-> Grid was switched) gets the default, as the editor draws it.
     if manual == "Grid":
         cells = dict(zip(numbers, default_cells(len(numbers))))
-        return {c[0]: center(c[4]) if c[4] else parse_cell(cells[c[0]]) for c in characters}
+        return {c[0]: c[4] if c[4] and len(c[4]) == 2 else parse_cell(cells[c[0]]) for c in characters}
     columns = dict(zip(numbers, auto_boxes(len(numbers))))
-    return {c[0]: c[4] or columns[c[0]] for c in characters}
+    return {c[0]: c[4] if c[4] and len(c[4]) == 4 else columns[c[0]] for c in characters}
 
 
 def _face_picks(args):
@@ -287,7 +289,14 @@ def _clear_on_paste(infotext, params):
     # Positions are written exactly when it was off; grid cells mean Grid.
     positions = [params.get(f"Char {n} position") for n in range(1, MAX_CHARS + 1)]
     params.setdefault("Char AI's Choice", str(not any(positions)))
-    params.setdefault("Char placement", "Grid" if any(parse_cell(v) for v in positions if v) else "Boxes")
+    if any(positions):  # without positions the image doesn't say, so the switch is left alone
+        params.setdefault("Char placement", "Grid" if any(parse_cell(v) for v in positions if v) else "Boxes")
+    # pasted characters are switched on, and so is the feature when the image had any
+    if any(params.get(f"Char {n} prompt") for n in range(1, MAX_CHARS + 1)):
+        params.setdefault("Char feature", "True")
+    for n in range(1, MAX_CHARS + 1):
+        if params.get(f"Char {n} prompt"):
+            params.setdefault(f"Char {n} on", "True")
     for n in range(1, MAX_CHARS + 1):
         for key in (f"Char {n} prompt", f"Char {n} UC", f"Char {n} name", f"Char {n} position"):
             params.setdefault(key, "")
@@ -557,7 +566,8 @@ class CharacterPrompts(scripts.Script):
                     (box, f"Char {i + 1} position"),
                     (face, f"Char {i + 1} ADetailer face"),
                     # a pasted character is switched on, or it would be pasted and never drawn
-                    (enabled, lambda params, n=i + 1: True if params.get(f"Char {n} prompt") else None),
+                    # string keys, so Send to img2img carries on/off too (_clear_on_paste fills them)
+                    (enabled, f"Char {i + 1} on"),
                 ]
                 prompt.change(_revealer(i), [prompt, shown], [shown, card], show_progress="hidden")
                 remove.click(_remove(i), [shown], [shown, card] + card_fields, show_progress="hidden")
@@ -577,7 +587,7 @@ class CharacterPrompts(scripts.Script):
         infotext.append((auto, "Char AI's Choice"))
         infotext.append((manual, "Char placement"))
         # pasting an image with characters switches the feature on
-        infotext.append((on, lambda params: True if any(params.get(f"Char {n} prompt") for n in range(1, MAX_CHARS + 1)) else None))
+        infotext.append((on, "Char feature"))
         self.infotext_fields = infotext
         self.paste_field_names = [key for _, key in infotext if isinstance(key, str)]
         # Added fields go last, so API callers written for the older layouts keep working:

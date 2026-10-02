@@ -278,6 +278,8 @@ def test_grid_points():
     assert parse_cell("F1") is None and parse_cell("C6") is None and parse_cell("") is None
     assert format_cell((0.5, 0.5)) == "C3" and format_cell((0.0, 0.0, 0.4, 1.0)) == "B3" and format_cell((0.999, 0.999)) == "E5"
     assert default_cells(1) == ["C3"] and default_cells(2) == ["B3", "D3"] and default_cells(3) == ["A3", "C3", "E3"]
+    # more characters than columns: two rows, never two on one cell
+    assert default_cells(6) == ["A2", "B4", "C2", "C4", "D2", "E4"] and len(set(default_cells(6))) == 6
     # the image is split between the points: nearest wins, an even split right on the border,
     # nothing left to the base alone (a fade starved heads near the top of their character)
     w = region_weights([parse_cell("B3"), parse_cell("D3")], 11, 11).reshape(3, 11, 11)  # odd: has a middle

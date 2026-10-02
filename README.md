@@ -80,6 +80,9 @@ even while hugging.
       - a fade toward the image's edges: heads near the top got less of their character
         (`ab_grids/27`).
     - Two characters on the *same* cell share everything and merge; give each its own cell.
+      Cards that haven't been placed start across the middle row (rows 2 and 4 with six).
+    - A lone character's dot only changes the position words ("a girl on the left"): with
+      nothing to split the image with, it has the whole image. Use Boxes to confine one.
 - **Positions are proportional:** they're stored as fractions of the image, so the same layout
   applies at any resolution, through hires fix, and with Set Queue's random resolutions.
   - The frame always has the shape of the *next* image (your width × height). It sits on the
@@ -157,11 +160,14 @@ The `#` is protected from Forge's prompt comments, which would otherwise eat it.
   Negative prompt: worst quality, ...
   ```
 
-  - The name is there when the card has one; the position (`at x0 y0 x1 y1`) whenever AI's
-    Choice was off. Only `Char 1 ADetailer face` stays a parameter (when it isn't auto).
-  - Pasting an image (or Send to txt2img / img2img) splits the lines back into the cards,
-    switches them on, sets AI's Choice, and clears the cards if the image had none. Pasting the
-    text into the prompt box does the same. Images from before this format, with
+  - The name is there when the card has one; the position whenever AI's Choice was off: a
+    box (`at x0 y0 x1 y1`) or a grid cell (`at C3`). Only `Char 1 ADetailer face` stays a
+    parameter (when it isn't auto).
+  - Pasting an image splits the lines back into the cards, switches them and the feature on,
+    sets AI's Choice and Boxes / Grid from the positions, and clears the cards if the image had
+    none. Pasting the prompt text straight into the prompt box does the same (a whole PNG info
+    pasted there is left to Forge's ↙ paste button). Send to txt2img / img2img carries the
+    cards as they are, on/off states included. Images from before this format, with
     `Char 1 prompt` parameters, still paste.
   - Anything that copies the prompt carries the characters with it. A prompt with
     `Character N:` lines in it *is* a character prompt: an API caller can send one, and the
@@ -172,7 +178,7 @@ The `#` is protected from Forge's prompt comments, which would otherwise eat it.
   the Precise Reference come along. The batch extension has two small hooks for it
   (`has_characters`, `replay_script_args` in `batch_adetailer_shared.py`). Tested through
   the real UI on a folder: txt2img → Batch ADetailer (each face got its own character) →
-  Batch Hires-Fix (`Character Prompts ... custom (hires)`, `Precise Reference +0.60`), with
+  Batch Hires-Fix (`Character Prompts ... boxes (hires)`, `Precise Reference +0.60`), with
   the characters and the reference path still in the final image's PNG info.
 - **Krita:** Krita AI Diffusion has no per-character regions, so an image opened in Krita
   gets one plain prompt: the `Diffusion Metadata Guard` plugin drops the `Character N:`
@@ -244,6 +250,9 @@ Both go in `models\precise_reference\` (about 2 GB):
 - **Several cards blend** into one reference (up to 4): the same character from a few angles,
   or a character plus a style. For solo images or the whole image's look/composition: two
   *different* characters' references blend into one character, as NovelAI's do too.
+  - Cards add up: three cards at Strength 1 push about three times as hard as one. Three
+    angles of Ren at 1.0 each still looked right (the proof folder's example 32);
+    lower each card's Strength if the result copies the references too literally.
 - **Type**: NovelAI's three. It only picks the starting Strength (Style = 0.5, the others
   1.0). The adapter has one mode, and no setting was found that separates a character from
   its art style, so Character and Character & Style behave the same.

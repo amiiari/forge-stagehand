@@ -52,14 +52,6 @@
     gap: 8px;
 }
 
-.nai-panel .nai-title {
-    color: var(--nai-text);
-    font-weight: 600;
-    font-size: 15px;
-    letter-spacing: 0.02em;
-    padding: 2px 4px;
-}
-
 .nai-panel .nai-head .gradio-html,
 .nai-panel .nai-head .block {
     background: transparent !important;
@@ -163,8 +155,16 @@
     background: var(--nai-char) !important;
 }
 
+/* visually hidden, still reachable with the keyboard */
 .nai-panel .nai-char-on label input {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+}
+
+.nai-panel .nai-char-on label:focus-within {
+    outline: 2px solid var(--nai-gold);
 }
 
 .nai-panel .nai-char-on label > span {

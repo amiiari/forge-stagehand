@@ -109,7 +109,7 @@ def read(text: str) -> tuple[str, dict]:
 
 # ---------------------------------------------------------------------------- regions
 # A character's place is a box (x0, y0, x1, y1) or a point (x, y), fractions of the image.
-# A point is NovelAI's grid position: the character's center, with a soft area around it.
+# A point is NovelAI's grid position: the character's center (see region_weights).
 Box = tuple
 GRID = 5  # NovelAI V4/V4.5's 5x5 position grid: columns A-E, rows 1-5
 # A point is a character's center, and the image is split between the points: every spot
@@ -147,8 +147,13 @@ def format_cell(shape) -> str:
 
 def default_cells(count: int) -> list[str]:
     """Where Grid puts characters that have no cell yet: spread across the middle row, in card
-    order, like AI's Choice."""
-    return [f"{chr(ord('A') + min(int((k + 0.5) / count * GRID), GRID - 1))}3" for k in range(count)]
+    order, like AI's Choice -- or, with more characters than columns, alternating rows 2 and 4
+    so no two share a cell."""
+    def cell(k):
+        row = 3 if count <= GRID else (2 if k % 2 == 0 else 4)
+        return f"{chr(ord('A') + min(int((k + 0.5) / count * GRID), GRID - 1))}{row}"
+
+    return [cell(k) for k in range(count)]
 
 
 def _blur(mask: torch.Tensor, sigma: float) -> torch.Tensor:
