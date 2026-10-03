@@ -411,6 +411,26 @@
         overlay.querySelectorAll("[data-key]").forEach((d) => keep.has(d.dataset.key) || d.remove());
     }
 
+    // Tag Autocomplete (when installed) attaches to the prompt boxes it finds when the page
+    // loads; a card's boxes only exist once the card is shown, so they're handed to it as they
+    // appear (once each: it skips a box it's already on, or one its settings leave out).
+    const offered = new WeakSet();
+    function autocomplete(id) {
+        if (typeof addAutocompleteToArea !== "function" || typeof TAC_CFG === "undefined" || !TAC_CFG) return;
+        for (let n = 1; n <= MAX; n++) {
+            for (const kind of ["prompt", "uc"]) {
+                const area = el(`nai_${id}_char${n}_${kind}`)?.querySelector("textarea");
+                if (!area || offered.has(area)) continue;
+                offered.add(area);
+                try {
+                    addAutocompleteToArea(area);
+                } catch (e) {
+                    console.warn("[Stagehand] Tag Autocomplete couldn't attach to a character box", e);
+                }
+            }
+        }
+    }
+
     // A card's controls only exist once the card is shown, so this runs with the layout loop.
     function tooltips(id) {
         const tips = {
@@ -450,6 +470,7 @@
             sync(id);
             render(tab, id);
             tooltips(id);
+            autocomplete(id);
         }), 400);
     });
 })();

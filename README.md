@@ -107,6 +107,8 @@ When it's backwards:
 - **Set Queue and Dynamic Prompts wildcards** inside the cards, and prompt editing
   (`[a:b:10]`), switching on the same steps as the main prompt.
 - **LoRA tags** in a card apply to the whole image, like everywhere else in Forge.
+- **Tag Autocomplete** (sd-webui-tagcomplete) suggests tags in each card's Prompt and Undesired
+  Content boxes too (with its "Active in third party textboxes" setting on, the default).
 - **Hires fix**, **img2img**, and inpainting. With "Only masked", positions stay where they are
   in the whole image: inpainting one character's face keeps it that character's.
 - **ADetailer gives each face its own character.** Wherever ADetailer's prompt is `[PROMPT]`

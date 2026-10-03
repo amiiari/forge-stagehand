@@ -109,6 +109,12 @@ async def check_characters(page, tmp):
     await page.type("#nai_t2i_char2_prompt textarea", CHAR2)
     info = await page.generate()
     assert f"Character 1: {CHAR1}" in info and f"Character 2: {CHAR2}" in info, f"characters missing from the PNG info:\n{info}"
+    # Tag Autocomplete (when installed) attaches to boxes that exist at page load; the cards'
+    # boxes appear later and are handed to it by stagehand.js
+    if await page.js("typeof addAutocompleteToArea === 'function'"):
+        attached = "['prompt', 'uc'].every(k => gradioApp().querySelector(`#nai_t2i_char1_${k} textarea`)?.classList.contains('autocomplete'))"
+        assert await page.wait(attached, 15), "Tag Autocomplete isn't attached to the character boxes"
+        print("ok  Tag Autocomplete works in the character boxes")
     out = os.path.join(tmp, "ui_check.png")
     await page.gallery_image(out)
     assert f"Character 1: {CHAR1}" in Image.open(out).info.get("parameters", ""), "the saved image has no character lines"

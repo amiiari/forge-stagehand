@@ -166,6 +166,16 @@
     border-left: 3px solid var(--nai-char) !important;
 }
 
+/* Tag Autocomplete's suggestion list hangs below the prompt box: the card mustn't clip it */
+.nai-panel .nai-char-card,
+.nai-panel .nai-char-card .styler {
+    overflow: visible !important;
+}
+
+.nai-panel .nai-char-card .autocompleteResults {
+    z-index: 50;
+}
+
 /* the card's name: looks like a title, underlined on hover so it reads as editable */
 .nai-panel .nai-char-name input {
     background: transparent !important;
