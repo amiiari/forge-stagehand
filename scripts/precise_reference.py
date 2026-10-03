@@ -27,7 +27,7 @@ from backend.args import dynamic_args
 from backend.patcher.lora import load_lora
 
 from lib_stagehand import adapter_runtime, anima_hooks
-from lib_stagehand.ip_adapter import IPReference, IPSession, flatten, has_image, lora_patch_source
+from lib_stagehand.ip_adapter import IPReference, IPSession, flatten, has_image, image_key, lora_patch_source
 
 anima_hooks.install()
 
@@ -82,11 +82,13 @@ def _as_array(image):
 def _keep(array) -> str:
     """Path of the kept copy of a reference (as used: transparency already flattened). Named
     by content, so the same reference is kept once however often it's used."""
-    digest = hashlib.sha1(np.ascontiguousarray(array).tobytes()).hexdigest()[:12]
-    path = os.path.join(REFERENCE_DIR, f"reference {digest}.png")
+    path = os.path.join(REFERENCE_DIR, f"reference {image_key(array)[:12]}.png")
     if not os.path.exists(path):
         os.makedirs(REFERENCE_DIR, exist_ok=True)
-        Image.fromarray(array).save(path)
+        # a full disk mid-save must not leave a broken file that exists() then reuses forever
+        tmp = path + ".tmp"
+        Image.fromarray(array).save(tmp, format="PNG")
+        os.replace(tmp, path)
     return path
 
 
@@ -178,6 +180,7 @@ def _hook_adetailer() -> None:
             if getattr(p, "_pr_in_adetailer", False):
                 ours = [s for s in p.scripts.alwayson_scripts if Path(s.filename).stem == "precise_reference"]
                 runner.alwayson_scripts = runner.alwayson_scripts + [s for s in ours if s not in runner.alwayson_scripts]
+                runner._pr_xyz = getattr(p, "_pr_xyz", None)  # an XYZ cell's strength, not the UI's
             return runner, script_args
 
         script_filter._pr_hooked = True
@@ -231,8 +234,11 @@ class PreciseReference(scripts.Script):
         return scripts.AlwaysVisible if _enabled() else False
 
     def ui(self, is_img2img):
-        _register_xyz()
-        _hook_adetailer()
+        for setup in (_register_xyz, _hook_adetailer):
+            try:
+                setup()
+            except Exception as e:  # without the panel, every generation would fail on its args
+                print(f"[Precise Reference] {setup.__name__} failed, carrying on without it: {e!r}")
         tab = "i2i" if is_img2img else "t2i"
         components = []
         infotext = []
@@ -328,11 +334,19 @@ class PreciseReference(scripts.Script):
         return args + [str(params.get("PR in ADetailer", "")) == "True", True] if found else None
 
     def process_before_every_sampling(self, p, *args, **kwargs):
+        # the previous pass's reference K/V (~224 MB each on the GPU) is done with
+        for old in getattr(p, "_pr_sessions", []):
+            old.clear()
+        p._pr_sessions = []
         on = args[MAX_REFS * CARD_FIELDS + 1] if len(args) > MAX_REFS * CARD_FIELDS + 1 else True
         cards = [args[i * CARD_FIELDS : (i + 1) * CARD_FIELDS] for i in range(MAX_REFS)]
         if on is False or not any(has_image(card[0]) for card in cards):
             return
-        overrides = getattr(p, "_pr_xyz", None) or {}
+        # ADetailer hands over every script when its "only selected scripts" is off:
+        # "also in ADetailer" unticked must still keep the reference out of the face pass
+        if getattr(p, "_ad_inner", False) and not (len(args) > MAX_REFS * CARD_FIELDS and args[MAX_REFS * CARD_FIELDS]):
+            return
+        overrides = getattr(p, "_pr_xyz", None) or getattr(getattr(p, "scripts", None), "_pr_xyz", None) or {}
         # A copied p (XYZ cells) shares extra_generation_params: start from a clean slate.
         p.extra_generation_params.pop("PR in ADetailer", None)
         for i in range(MAX_REFS):
@@ -344,7 +358,12 @@ class PreciseReference(scripts.Script):
         if not blocks:
             print("[Precise Reference] the adapter is trained for Anima only; this checkpoint isn't Anima -- skipping.")
             return
-        adapter, lora, metadata = adapter_runtime.adapter()
+        try:
+            adapter, lora, metadata = adapter_runtime.adapter()
+        except FileNotFoundError as e:  # one line and a note in the image info, not a traceback per image
+            print(f"[Precise Reference] {e}")
+            p.comment(f"Precise Reference skipped: {e}")
+            return
         if len(blocks) != len(adapter.blocks):
             # e.g. the 40-block anima29B: same width, so it would run until block 28 indexed
             # past the adapter and killed the generation mid-sampling
@@ -391,7 +410,7 @@ class PreciseReference(scripts.Script):
         unet.add_extra_model_patcher_during_sampling(adapter_runtime.patcher(unet, adapter))
         unet.set_transformer_option(anima_hooks.IP_KEY, session)
         p.sd_model.forge_objects.unet = unet
-        p._pr_sessions = getattr(p, "_pr_sessions", []) + [session]
+        p._pr_sessions = [session]
         # Off by default. On: ADetailer's face pass gets the reference too (better likeness
         # in testing, and ~3 s/image faster since the model isn't re-patched between passes).
         p._pr_in_adetailer = len(args) > MAX_REFS * CARD_FIELDS and bool(args[MAX_REFS * CARD_FIELDS])
@@ -405,6 +424,10 @@ class PreciseReference(scripts.Script):
             p.extra_generation_params[f"PR {i + 1} strength"] = round(strength, 3)
             p.extra_generation_params[f"PR {i + 1} fidelity"] = round(fidelity, 3)
         print("[Precise Reference] " + ", ".join(f"{k} {s:+.2f} fid {f:.2f}" for _, k, s, f, _ in used))
+
+    def postprocess_batch(self, p, *args, **kwargs):
+        # each batch's sampling is over (ADetailer, which runs after this, makes its own)
+        self.postprocess(p, None)
 
     def postprocess(self, p, processed, *args):
         # the session stays reachable from forge_objects until the next generation resets it

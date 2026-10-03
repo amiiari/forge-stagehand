@@ -248,6 +248,19 @@ def test_translate_actions():
     assert translate_actions(["girl, red hair"], auto_boxes(1)) == (["girl, red hair"], [])
 
 
+def test_crop_places():
+    from lib_stagehand.characters import crop_places, region_weights
+
+    columns = [(0.0, 0.0, 0.5, 1.0), (0.5, 0.0, 1.0, 1.0)]
+    # inpaint "Only masked" around a face in the right half of a 1024x768 image
+    crop = (580, 40, 220, 260)
+    moved = crop_places(columns, crop, (1024, 768))
+    w = region_weights(moved, 8, 8, blur=0)
+    assert w[2].min() > 0.99, "the whole crop belongs to the right-hand character"
+    assert crop_places([(0.75, 0.25)], (512, 0, 512, 384), (1024, 768)) == [(0.5, 0.5)]
+    assert crop_places(columns, None, (1024, 768)) is columns  # not inpainting: unchanged
+
+
 def test_png_info_lines():
     from lib_stagehand.characters import read, show
 

@@ -165,6 +165,24 @@ def _blur(mask: torch.Tensor, sigma: float) -> torch.Tensor:
     return out[0, 0]
 
 
+def crop_places(places: list, crop, full) -> list:
+    """Positions (fractions of the whole image) in the frame of a crop of it: crop is
+    (x, y, width, height) in pixels of an image of size full (width, height). Without a
+    usable crop the positions come back unchanged."""
+    if not crop or not full or crop[2] <= 0 or crop[3] <= 0:
+        return places
+    x, y, w, h = crop
+    W, H = full
+
+    def fx(v):
+        return (v * W - x) / w
+
+    def fy(v):
+        return (v * H - y) / h
+
+    return [(fx(pl[0]), fy(pl[1])) if len(pl) == 2 else (fx(pl[0]), fy(pl[1]), fx(pl[2]), fy(pl[3])) for pl in places]
+
+
 def region_weights(boxes: list[Box], height: int, width: int, blur: float = 1.5, own: float = OWN_SIGMA) -> torch.Tensor:
     """[1 + len(boxes), height * width] blend weights; row 0 is the background (the base
     prompt alone). Every token's weights sum to 1, so overlapping places share it. A box is a
@@ -288,9 +306,9 @@ class RegionSession:
             self._weights[key] = w.reshape(len(w), total * plane).to(device=device, dtype=dtype)
         return self._weights[key]
 
-    def _real_lengths(self, context):
+    def _real_lengths(self, context, options_key=()):
         """Real base-token count per row: one GPU sync per model call, not one per block."""
-        key = (context.data_ptr(), tuple(context.shape))
+        key = (context.data_ptr(), tuple(context.shape), self.step(), tuple(options_key))
         if self._lengths[0] != key:
             flat = context.reshape(context.shape[0], -1, context.shape[-1])
             real = flat.abs().sum(-1) > 0
@@ -321,7 +339,7 @@ class RegionSession:
 
         step = self.step()
         images = len(self.images)
-        lengths = self._real_lengths(context)
+        lengths = self._real_lengths(context, tuple(options.get("cond_indices") or ()) + (-1,) + tuple(options.get("uncond_indices") or ()))
         heads, dim = k.shape[-2], k.shape[-1]
         k_rows, v_rows = k.reshape(batch, -1, heads, dim), v.reshape(batch, -1, heads, dim)
         out = None

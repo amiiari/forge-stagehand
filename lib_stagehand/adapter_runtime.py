@@ -61,6 +61,7 @@ def reference_tokens(image) -> torch.Tensor:
 
             _encoder = SiglipVisionModel.from_pretrained(os.path.join(ADAPTER_DIR, SIGLIP_DIR)).eval()
         device = memory_management.get_torch_device()
+        memory_management.free_memory(memory_management.module_size(_encoder), device)
         _encoder.to(device)
         try:
             tokens = encode_reference(_encoder, image, device).cpu()

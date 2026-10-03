@@ -44,6 +44,29 @@ Findings along the way:
   free phase.
 - Propagating masks through self-attention washes them out to uniform.
 
+### Saturation ("it looks like a higher CFG")
+
+Character Prompts images are more saturated and a bit glossier than the same text as one
+prompt. Measured over 4 scenes x 4 seeds (2026-10-03):
+
+| | mean saturation | pixels over 0.85 saturation | edge energy |
+|---|---|---|---|
+| Character Prompts, CFG 4.5 | 0.353 | 2.7% | 0.0406 |
+| ... at CFG 4 / 3.5 | 0.348 / 0.343 | 2.5% / 2.2% | 0.0397 / 0.0391 |
+| one prompt, CFG 4.5 / 6 / 7.5 | 0.316 / 0.313 / 0.310 | 1.0% / 1.3% / 1.6% | 0.0354 / 0.0363 / 0.0374 |
+| each region encoded as main prompt + card together | 0.341 | 2.6% | 0.0380 |
+| other cards' keys kept in each region with zero values | 0.340 | 1.6% | 0.0411 |
+
+- It isn't CFG: CFG barely moves saturation on Anima, either way.
+- It isn't the regional machinery: one card holding every character's text reproduces the
+  plain prompt within rounding (~3/255).
+- It's the split itself: each character's area attends to the main prompt and its own card
+  only, so its tags get the attention they'd otherwise share with the other cards. Keeping
+  the other cards' keys (values zeroed, so nothing of them leaks in) restores that share and
+  halves the burnt pixels -- but weakens each card the same way: a character's weaker traits
+  (Ren's dark blue hair) held on 1 of 4 seeds instead of 3. Not adopted.
+- Hires fix and ADetailer don't change saturation.
+
 ### Positions
 
 - **AI's Choice** is equal columns in card order. A version where the model places the

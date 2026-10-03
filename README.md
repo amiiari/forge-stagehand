@@ -107,7 +107,8 @@ When it's backwards:
 - **Set Queue and Dynamic Prompts wildcards** inside the cards, and prompt editing
   (`[a:b:10]`), switching on the same steps as the main prompt.
 - **LoRA tags** in a card apply to the whole image, like everywhere else in Forge.
-- **Hires fix**, **img2img**, and inpainting (with "Only masked", positions apply to the crop).
+- **Hires fix**, **img2img**, and inpainting. With "Only masked", positions stay where they are
+  in the whole image: inpainting one character's face keeps it that character's.
 - **ADetailer gives each face its own character.** Wherever ADetailer's prompt is `[PROMPT]`
   (or empty), each face gets the main prompt plus its character's prompt, and that
   character's Undesired Content. Faces are matched to characters by position; a card's

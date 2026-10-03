@@ -463,7 +463,7 @@
 
 /* open, with both features off: nothing to show but how to switch one on */
 .nai-stagehand.nai-all-off[open]::after {
-    content: "Both features are off. Click a pill above to switch one on.";
+    content: "Everything is switched off. Click a pill above to switch it on.";
     display: block;
     padding: 0 14px 10px;
     color: #a3a6c8;

@@ -120,7 +120,8 @@
             if (panel) panel.style.display = on ? "" : "none";
         }
         // an open fold-out with both features off would be empty: say why (style.css)
-        box.classList.toggle("nai-all-off", !FEATURES.some(([feature]) => featureOn(id, feature)));
+        // (a feature hidden in Settings has no checkbox at all, so it doesn't count as on)
+        box.classList.toggle("nai-all-off", !FEATURES.some(([feature]) => checkbox(`nai_${id}_${feature}_on`)?.checked));
         // the Boxes / Grid switch, and where the positions go, only matter with AI's Choice off
         const auto = checkbox(`nai_${id}_chars_auto`)?.checked;
         const manual = el(`nai_${id}_chars_manual`);

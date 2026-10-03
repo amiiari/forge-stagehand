@@ -17,6 +17,7 @@ from __future__ import annotations
 import functools
 import inspect
 import json
+import math
 import os
 import re
 from pathlib import Path
@@ -29,6 +30,7 @@ from modules.processing_scripts.comments import strip_comments
 
 from lib_stagehand import anima_hooks
 from lib_stagehand.characters import (
+    crop_places,
     RegionSession,
     auto_boxes,
     center,
@@ -94,8 +96,11 @@ _NETWORK = re.compile(r"<[^<>:]+:[^<>]+>")
 
 def _parse_box(text):
     try:
-        x0, y0, x1, y1 = (min(max(float(v), 0.0), 1.0) for v in str(text).replace(",", " ").split())
+        values = [float(v) for v in str(text).replace(",", " ").split()]
+        x0, y0, x1, y1 = (min(max(v, 0.0), 1.0) for v in values)
     except ValueError:
+        return None
+    if not all(math.isfinite(v) for v in values):
         return None
     return (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)) if x1 != x0 and y1 != y0 else None
 
@@ -148,6 +153,15 @@ def _places(characters, auto, manual):
         return {c[0]: c[4] if c[4] and len(c[4]) == 2 else parse_cell(cells[c[0]]) for c in characters}
     columns = dict(zip(numbers, auto_boxes(len(numbers))))
     return {c[0]: c[4] if c[4] and len(c[4]) == 4 else columns[c[0]] for c in characters}
+
+
+def _in_crop(p, places):
+    """Inpaint "Only masked" samples just the crop around the mask (p.paste_to, in the whole
+    image's pixels). Positions are fractions of the whole image, so they're moved into the
+    crop's frame: inpainting one face keeps it that character's, instead of splitting the crop
+    into columns. Anything else comes back unchanged."""
+    crop = getattr(p, "paste_to", None) if getattr(p, "inpaint_full_res", False) else None
+    return crop_places(places, crop, getattr(getattr(p, "mask_for_overlay", None), "size", None))
 
 
 def _face_picks(args):
@@ -213,13 +227,31 @@ def _no_change(extra=0):
 PRESETS = os.path.join(data_path, "stagehand character presets.json")
 
 
-def _presets():
+def _presets(strict=False):
+    """The saved presets. strict (before writing): an existing file that can't be read raises
+    instead of reading as empty, so a save can't wipe it."""
     try:
         with open(PRESETS, encoding="utf-8") as f:
             data = json.load(f)
-    except (OSError, ValueError):
+    except FileNotFoundError:
         return {}
-    return {k: v for k, v in data.items() if isinstance(v, dict)} if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        if strict:
+            raise
+        return {}
+    if not isinstance(data, dict):
+        if strict:
+            raise ValueError("not a JSON object")
+        return {}
+    return {k: v for k, v in data.items() if isinstance(v, dict)}
+
+
+def _presets_for_writing():
+    try:
+        return _presets(strict=True)
+    except (OSError, ValueError) as e:
+        gr.Warning(f"Couldn't read {os.path.basename(PRESETS)} ({e}). Fix or move it; nothing was changed.")
+        return None
 
 
 def _write_presets(presets):
@@ -242,7 +274,9 @@ def _save_preset(name, prompt, uc):
     if not (prompt or "").strip():
         gr.Warning("This card has no prompt to save.")
         return gr.update()
-    presets = _presets()
+    presets = _presets_for_writing()
+    if presets is None:
+        return gr.update()
     replaced = name in presets
     presets[name] = {"prompt": prompt, "uc": uc or ""}
     _write_presets(presets)
@@ -251,8 +285,12 @@ def _save_preset(name, prompt, uc):
 
 
 def _delete_preset(name):
-    presets = _presets()
-    if name and presets.pop(name, None) is not None:
+    if not name:  # nothing picked, or the confirmation was cancelled: leave the list as it is
+        return gr.update()
+    presets = _presets_for_writing()
+    if presets is None:
+        return gr.update()
+    if presets.pop(name, None) is not None:
         _write_presets(presets)
         gr.Info(f'Deleted the preset "{name}".')
     return gr.update(choices=_preset_choices(presets), value="")
@@ -262,11 +300,14 @@ def _add(shown, preset, *values):
     shown = list(shown)
     free = [i for i in range(MAX_CHARS) if not _taken(shown, values, i)]
     if not free:
+        gr.Warning(f"All {MAX_CHARS} character cards are in use. Delete one first.")
         return [gr.update()] + _no_change() + [gr.update()]
     i = free[0]
     shown[i] = True
     updates = _no_change()
     saved = _presets().get(preset) if preset else None
+    if preset and saved is None:
+        gr.Warning(f'The preset "{preset}" is gone (deleted elsewhere?). Added an empty card instead.')
     card = _card_values(name=preset, prompt=saved.get("prompt", ""), uc=saved.get("uc", "")) if saved else _card_values()
     updates[i * CARD_FIELDS : (i + 1) * CARD_FIELDS] = card
     updates[MAX_CHARS * CARD_FIELDS + i] = gr.update(visible=True)
@@ -702,6 +743,7 @@ class CharacterPrompts(scripts.Script):
     def before_process(self, p, *args):
         if getattr(p, "_ad_inner", False):
             return
+        p._nai_chars = None
         # Prompt Matrix and friends hand over a list per image; leave those alone.
         if not isinstance(p.prompt, str) or not isinstance(p.negative_prompt, str):
             return
@@ -731,6 +773,8 @@ class CharacterPrompts(scripts.Script):
             marked = sorted(set(split(p.prompt)[1]) | set(split(p.negative_prompt)[1]))
             known = {c[0]: c for c in characters}
             characters = [known.get(n, (n, "", "", "", None, None)) for n in marked]
+            if not has_marks(p.negative_prompt):  # the cards' Undesired Content, from the cards
+                p.negative_prompt = merge(p.negative_prompt, {c[0]: c[3] for c in characters if c[3]})
         elif characters:
             p.prompt = merge(p.prompt, {c[0]: c[2] for c in characters})
             p.negative_prompt = merge(p.negative_prompt, {c[0]: c[3] for c in characters})
@@ -832,7 +876,7 @@ class CharacterPrompts(scripts.Script):
         regions = [[(encoded.get(image[kind].get(n)), encoded.get(image[uc_kind].get(n))) for n in info["numbers"]] for image in images]
         denoiser = p.sampler.model_wrap_cfg
         session = RegionSession(
-            [info["boxes"][n] for n in info["numbers"]],
+            _in_crop(p, [info["boxes"][n] for n in info["numbers"]]),
             regions,
             step=lambda: denoiser.step,
             patch=getattr(diffusion_model, "patch_spatial", 2),
