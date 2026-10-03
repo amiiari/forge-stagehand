@@ -71,6 +71,17 @@
     min-width: 0 !important;
 }
 
+/* the preset picker next to + Add character */
+.nai-panel .nai-head > .nai-preset {
+    flex: 0 0 auto !important;
+    width: 180px !important;
+    min-width: 0 !important;
+}
+
+.nai-panel .nai-preset input {
+    font-size: 13px !important;
+}
+
 /* "place them on the output image": shown by stagehand.js while AI's Choice is off */
 .nai-panel .nai-head > .nai-where {
     display: none;

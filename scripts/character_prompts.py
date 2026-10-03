@@ -16,12 +16,15 @@ from __future__ import annotations
 
 import functools
 import inspect
+import json
+import os
 import re
 from pathlib import Path
 
 import gradio as gr
 
-from modules import processing, prompt_parser, script_callbacks, scripts, sd_samplers
+from modules import processing, prompt_parser, script_callbacks, scripts, sd_samplers, shared
+from modules.paths_internal import data_path
 from modules.processing_scripts.comments import strip_comments
 
 from lib_stagehand import anima_hooks
@@ -61,6 +64,8 @@ HELP = """<details class="nai-help"><summary>How to use</summary><div>
 <ol>
 <li><b>Main prompt:</b> the scene, the style, and how many people (<code>2girls</code>, <code>1boy, 1girl</code>).
 Don't describe the characters there.</li>
+<li><b>Presets:</b> name a card, then &#128190; saves it (prompt and Undesired Content, line breaks kept). Pick it in
+the list next to <b>+ Add character</b> to add it again; &#128465; next to the list deletes the selected one.</li>
 <li><b>+ Add character</b> adds a card. Describe only that character in its box: hair, eyes, outfit, expression.
 Whatever that character must not have goes under <b>Undesired Content</b>. A card's <b>On</b> / <b>Off</b> pill switches that
 character off without deleting it; the <b>Character Prompts</b> pill in the Stagehand header does that for all of
@@ -202,17 +207,71 @@ def _no_change(extra=0):
     return [gr.update()] * (MAX_CHARS * CARD_FIELDS + MAX_CHARS + extra)
 
 
-def _add(shown, *values):
+# ---------------------------------------------------------------------------- presets
+# A character saved by name: its prompt and Undesired Content exactly as typed, newlines
+# included. In Forge's folder, not the extension's, so an update or reinstall keeps them.
+PRESETS = os.path.join(data_path, "stagehand character presets.json")
+
+
+def _presets():
+    try:
+        with open(PRESETS, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return {k: v for k, v in data.items() if isinstance(v, dict)} if isinstance(data, dict) else {}
+
+
+def _write_presets(presets):
+    # whole file to a temp first: a crash mid-write must not cost every saved character
+    tmp = PRESETS + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(dict(sorted(presets.items(), key=lambda kv: kv[0].lower())), f, ensure_ascii=False, indent=2)
+    os.replace(tmp, PRESETS)
+
+
+def _preset_choices(presets=None):
+    return [("Empty card", "")] + [(name, name) for name in sorted(presets if presets is not None else _presets(), key=str.lower)]
+
+
+def _save_preset(name, prompt, uc):
+    name = (name or "").strip()
+    if not name:
+        gr.Warning("Give the card a name first: the preset is saved under it.")
+        return gr.update()
+    if not (prompt or "").strip():
+        gr.Warning("This card has no prompt to save.")
+        return gr.update()
+    presets = _presets()
+    replaced = name in presets
+    presets[name] = {"prompt": prompt, "uc": uc or ""}
+    _write_presets(presets)
+    gr.Info(f'{"Updated" if replaced else "Saved"} the preset "{name}".')
+    return gr.update(choices=_preset_choices(presets))
+
+
+def _delete_preset(name):
+    presets = _presets()
+    if name and presets.pop(name, None) is not None:
+        _write_presets(presets)
+        gr.Info(f'Deleted the preset "{name}".')
+    return gr.update(choices=_preset_choices(presets), value="")
+
+
+def _add(shown, preset, *values):
     shown = list(shown)
     free = [i for i in range(MAX_CHARS) if not _taken(shown, values, i)]
     if not free:
-        return [gr.update()] + _no_change()
+        return [gr.update()] + _no_change() + [gr.update()]
     i = free[0]
     shown[i] = True
     updates = _no_change()
-    updates[i * CARD_FIELDS : (i + 1) * CARD_FIELDS] = _card_values()
+    saved = _presets().get(preset) if preset else None
+    card = _card_values(name=preset, prompt=saved.get("prompt", ""), uc=saved.get("uc", "")) if saved else _card_values()
+    updates[i * CARD_FIELDS : (i + 1) * CARD_FIELDS] = card
     updates[MAX_CHARS * CARD_FIELDS + i] = gr.update(visible=True)
-    return [shown] + updates
+    # back to "Empty card", so the next + doesn't quietly add the same character again
+    return [shown] + updates + [gr.update(value="") if saved else gr.update()]
 
 
 def _remove(i):
@@ -306,6 +365,17 @@ def _clear_on_paste(infotext, params):
 
 
 script_callbacks.on_infotext_pasted(_clear_on_paste)
+
+
+def _settings():
+    # registered here because Character Prompts always loads; precise_reference.py reads it
+    shared.opts.add_option("stagehand_precise_reference", shared.OptionInfo(
+        True, "Precise Reference", gr.Checkbox, section=("stagehand", "Stagehand"),
+    ).info("off removes it completely: its section and pill under the prompt, its paste handling, "
+           "its XYZ Plot axes and its ADetailer hook").needs_reload_ui())
+
+
+script_callbacks.on_ui_settings(_settings)
 
 
 def _with_characters(text, a):
@@ -538,8 +608,13 @@ class CharacterPrompts(scripts.Script):
                 # with AI's Choice off, where the positions are placed (stagehand.js shows it)
                 gr.HTML('<span class="nai-hint">place them on the output image</span>', elem_id=f"nai_{tab}_chars_where", elem_classes=["nai-title-cell", "nai-where"])
                 gr.HTML("", elem_classes=["nai-spacer"])  # pushes the add button to the right
+                # a saved character for the next + (each card's 💾 saves one)
+                preset = gr.Dropdown(_preset_choices(), value="", show_label=False, container=False, scale=0, min_width=170,
+                                     elem_id=f"nai_{tab}_chars_preset", elem_classes=["nai-preset"])
+                delete_preset = gr.Button("🗑", elem_classes=["nai-icon", "nai-delete-preset"], min_width=30, scale=0)
                 add = gr.Button("+ Add character", elem_classes=["nai-add"], min_width=40, scale=0)
             shown = gr.State([False] * MAX_CHARS)
+            saves = []
 
             for i in range(MAX_CHARS):
                 with gr.Group(visible=False, elem_id=f"nai_{tab}_char{i + 1}", elem_classes=["nai-card", "nai-char-card", f"nai-char-{i + 1}"]) as card:
@@ -550,6 +625,7 @@ class CharacterPrompts(scripts.Script):
                         face = gr.Dropdown(FACES, value=FACES[0], show_label=False, container=False, scale=0, min_width=170, elem_classes=["nai-char-face"])
                         up = gr.Button("↑", elem_classes=["nai-icon"], min_width=30, scale=0)
                         down = gr.Button("↓", elem_classes=["nai-icon"], min_width=30, scale=0)
+                        save = gr.Button("💾", elem_classes=["nai-icon", "nai-save-preset"], min_width=30, scale=0)
                         copy = gr.Button("⧉", elem_classes=["nai-icon"], min_width=30, scale=0)
                         remove = gr.Button("🗑", elem_classes=["nai-icon"], min_width=30, scale=0)
                     with gr.Tabs(elem_classes=["nai-char-tabs"]):
@@ -583,6 +659,8 @@ class CharacterPrompts(scripts.Script):
                 ]
                 prompt.change(_revealer(i), [prompt, shown], [shown, card], show_progress="hidden")
                 remove.click(_remove(i), [shown], [shown, card] + card_fields, show_progress="hidden")
+                save.click(_save_preset, [name, prompt, uc], [preset], show_progress="hidden")
+                saves.append(save)
 
             everything = fields + cards
             for i in range(MAX_CHARS):
@@ -590,10 +668,15 @@ class CharacterPrompts(scripts.Script):
                 downs[i].click(_swap(i, i + 1), [shown] + fields, [shown] + everything, show_progress="hidden")
                 copies[i].click(_duplicate(i), [shown] + fields, [shown] + everything, show_progress="hidden")
 
-            add.click(_add, [shown] + fields, [shown] + everything, show_progress="hidden")
+            add.click(_add, [shown, preset] + fields, [shown] + everything + [preset], show_progress="hidden")
+            # asks first; a cancel hands the backend "" and nothing is deleted
+            delete_preset.click(_delete_preset, [preset], [preset], show_progress="hidden",
+                                _js="(name) => [name && confirm(`Delete the character preset \"${name}\"?`) ? name : '']")
+            # presets saved in the other tab (or another browser) show up when the list opens
+            preset.focus(lambda: gr.update(choices=_preset_choices()), None, [preset], show_progress="hidden")
             gr.HTML(HELP)
 
-        for component in [auto, add] + ups + downs + copies + removes:
+        for component in [auto, add, preset, delete_preset] + ups + downs + copies + removes + saves:
             component.do_not_save_to_config = True  # ui-config keys collide by label
         # "True"/"False" rather than a callable key, so Send to img2img carries it too
         infotext.append((auto, "Char AI's Choice"))

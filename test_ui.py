@@ -129,6 +129,9 @@ async def check_paste(page, info):
 
 async def check_reference(page, image):
     # the cards from check_paste are still filled: references and characters together
+    if not await page.js("!!gradioApp().querySelector('#nai_t2i_pr')"):
+        print("--  Precise Reference is switched off in Settings: reference check skipped")
+        return
     await page.js("gradioApp().querySelector('#nai_t2i_pr .nai-add').click()")
     assert await page.wait("!!gradioApp().querySelector('#nai_t2i_pr1_image input[type=file]')", 10), "+ didn't add a reference card"
     await page.upload("#nai_t2i_pr1_image input[type=file]", image)
@@ -136,6 +139,66 @@ async def check_reference(page, image):
     info = await page.generate()
     assert "PR 1 image:" in info, f"the reference wasn't applied (no 'PR 1 image' in the PNG info):\n{info}"
     print("ok  a reference dropped into a card is applied, and its file path is in the PNG info")
+
+
+PRESET_NAME = "stagehand test preset"
+PRESET_TEXT = "girl, red hair,\nblack suit, pencil skirt,\n\nsmug"  # line breaks must survive
+PRESETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "stagehand character presets.json")
+
+
+def saved_presets():
+    try:
+        with open(PRESETS, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+async def pick_preset(page, name):
+    await page.js("gradioApp().querySelector('#nai_t2i_chars_preset input').dispatchEvent(new Event('focus'))")
+    await page.js("gradioApp().querySelector('#nai_t2i_chars_preset input').click()")
+    found = f"Array.from(gradioApp().querySelectorAll('#nai_t2i_chars_preset li')).find(li => li.textContent.replace('✓', '').trim() === {json.dumps(name)})"
+    assert await page.wait(f"!!{found}", 10), f"{name!r} isn't in the preset list"
+    await page.js(f"{found}.dispatchEvent(new MouseEvent('mousedown', {{bubbles: true}}))")
+    await asyncio.sleep(1)
+
+
+async def check_presets(page):
+    await setup(page)
+    await page.js("gradioApp().querySelector('#nai_t2i_chars .nai-add').click()")
+    assert await page.wait("!!gradioApp().querySelector('#nai_t2i_char1_prompt textarea')", 10)
+    await asyncio.sleep(1.5)
+    await page.type("#nai_t2i_char1 .nai-char-name input, #nai_t2i_char1 .nai-char-name textarea", PRESET_NAME)
+    await page.type("#nai_t2i_char1_prompt textarea", PRESET_TEXT)
+    await asyncio.sleep(1)
+    await page.js("gradioApp().querySelector('#nai_t2i_char1 .nai-save-preset').click()")
+    for _ in range(20):
+        await asyncio.sleep(0.5)
+        if PRESET_NAME in saved_presets():
+            break
+    assert saved_presets().get(PRESET_NAME, {}).get("prompt") == PRESET_TEXT, "💾 didn't save the card with its line breaks"
+
+    await pick_preset(page, PRESET_NAME)
+    await page.js("gradioApp().querySelector('#nai_t2i_chars .nai-add').click()")
+    assert await page.wait(f"(gradioApp().querySelector('#nai_t2i_char2_prompt textarea') || {{}}).value === {json.dumps(PRESET_TEXT)}", 15), \
+        "+ Add character with a preset picked didn't fill the new card (line breaks included)"
+
+    await pick_preset(page, PRESET_NAME)
+    await page.js("window.confirm = () => true")
+    await page.js("gradioApp().querySelector('#nai_t2i_chars .nai-delete-preset').click()")
+    for _ in range(20):
+        await asyncio.sleep(0.5)
+        if PRESET_NAME not in saved_presets():
+            break
+    assert PRESET_NAME not in saved_presets(), "🗑 didn't delete the preset"
+    print("ok  presets: 💾 saves a card with its line breaks, + adds it back, 🗑 deletes it")
+
+
+def drop_test_preset():
+    presets = saved_presets()
+    if presets.pop(PRESET_NAME, None) is not None:
+        with open(PRESETS, "w", encoding="utf-8") as f:
+            json.dump(presets, f, ensure_ascii=False, indent=2)
 
 
 BATCH_TABS = {
@@ -189,6 +252,10 @@ async def main(url, batch):
             info, image = await check_characters(page, tmp)
             await check_paste(page, info)
             await check_reference(page, image)
+            try:
+                await check_presets(page)
+            finally:
+                drop_test_preset()  # never leave the test's preset in the user's list
             if batch:
                 folder = os.path.join(tmp, "batch")
                 os.makedirs(folder)

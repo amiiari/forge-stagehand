@@ -401,6 +401,25 @@
         overlay.querySelectorAll("[data-key]").forEach((d) => keep.has(d.dataset.key) || d.remove());
     }
 
+    // A card's controls only exist once the card is shown, so this runs with the layout loop.
+    function tooltips(id) {
+        const tips = {
+            ".nai-char-on": "Switch this character off to leave it out of the next image without deleting it",
+            ".nai-char-name": "Name (optional): shown in the image's PNG info and on its position box; a preset is saved under it",
+            ".nai-char-face": "ADetailer: which detected face gets this character's prompt. auto matches them by position",
+            ".nai-save-preset": "Save this character as a preset under its name (saving again updates it). Newlines are kept.",
+            ".nai-preset": "Character presets: pick one, then + Add character adds a card filled with it",
+            ".nai-delete-preset": "Delete the selected preset",
+            [`#nai_${id}_chars_auto`]: "On: the characters stand left to right in card order. Off: place them yourself, on the output image",
+            [`#nai_${id}_chars_manual`]: "Boxes: drag and resize a box per character. Grid: NovelAI's 5x5 grid, a dot where each character's head goes",
+            [`#nai_${id}_pr_adetailer`]: "Also use the references in ADetailer's face pass, for this generation",
+        };
+        const box = el(`nai_${id}_stagehand`);
+        for (const [selector, tip] of Object.entries(tips)) {
+            box?.querySelectorAll(selector).forEach((node) => node.title !== tip && (node.title = tip));
+        }
+    }
+
     onUiLoaded(() => {
         for (const [tab, id] of TABS) {
             wrap(tab, id);
@@ -408,17 +427,6 @@
             el(`nai_${id}_chars_manual`)?.querySelectorAll("input[type=radio]").forEach((radio) => {
                 radio.addEventListener("change", () => radio.checked && convert(id, radio.value));
             });
-            const tips = {
-                ".nai-char-on": "Switch this character off to leave it out of the next image without deleting it",
-                ".nai-char-name": "Name (optional): shown in the image's PNG info and on its position box",
-                ".nai-char-face": "ADetailer: which detected face gets this character's prompt. auto matches them by position",
-                [`#nai_${id}_chars_auto`]: "On: the characters stand left to right in card order. Off: place them yourself, on the output image",
-                [`#nai_${id}_chars_manual`]: "Boxes: drag and resize a box per character. Grid: NovelAI's 5x5 grid, a dot where each character's head goes",
-                [`#nai_${id}_pr_adetailer`]: "Also use the references in ADetailer's face pass, for this generation",
-            };
-            for (const [selector, tip] of Object.entries(tips)) {
-                el(`nai_${id}_stagehand`)?.querySelectorAll(selector).forEach((node) => (node.title = tip));
-            }
         }
         // Cheap and robust against everything that can change the layout (cards, toggles,
         // a new image, resizing); positions aren't re-placed while one is being dragged.
@@ -426,6 +434,7 @@
             unmerge(tab, id);
             sync(id);
             render(tab, id);
+            tooltips(id);
         }), 400);
     });
 })();

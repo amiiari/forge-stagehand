@@ -18,6 +18,12 @@ with a **How to use** fold-out.
 Anima wasn't trained for either feature the way NovelAI's model was, so both are done at
 generation time. [NOTES.md](NOTES.md) has how, and what the testing found.
 
+## Settings
+
+**Settings → Stagehand → Precise Reference**: untick it (then Reload UI) to remove Precise
+Reference completely: its section and pill under the prompt, its paste handling, its XYZ Plot
+axes and its ADetailer hook. Character Prompts is unaffected.
+
 ## Install
 
 Clone into Forge Neo's `extensions` folder and restart. Character Prompts needs nothing
@@ -42,7 +48,18 @@ else. Precise Reference needs two models in `models\precise_reference\` (about 2
 - **Prompt** and **Undesired Content** tabs.
 
 Write the scene, the style and the count tags (`2girls`, `1boy, 1girl`) in the main prompt,
-like on NovelAI. Each card describes one character, starting with `girl` or `boy`.
+like on NovelAI. Each card describes one character, starting with `girl` or `boy`. A card can
+span several lines (appearance, outfit, proportions...); the line breaks are kept everywhere,
+PNG info included.
+
+### Presets
+
+Name a card, then **💾** saves it as a preset: its prompt and Undesired Content exactly as
+typed, line breaks included. Saving a card with the same name again updates the preset. Pick a
+preset in the list next to **+ Add character**, then click it to add a card filled with that
+character; **🗑** next to the list deletes the selected preset (it asks first). Presets live in
+`stagehand character presets.json` in Forge's folder, so updating or reinstalling the
+extension keeps them.
 
 ### Positions
 
@@ -172,7 +189,8 @@ python test_ui.py [--batch]    # the real UI in headless Chrome; Forge must be r
 ```
 
 `test_ui.py` generates three small images: characters from the cards, pasting them back, and
-a reference from a card. `--batch` also runs them through Batch ADetailer and Batch
+a reference from a card. It also saves, re-adds and deletes a character preset (and never
+leaves its test preset behind). `--batch` also runs them through Batch ADetailer and Batch
 Hires-Fix.
 
 ## License

@@ -260,6 +260,13 @@ def test_png_info_lines():
     assert got_base == base
     assert got == {1: {"name": "Fran (sait0moriyama)", "box": "", "text": "girl, source#hug, [a::7]"},
                    2: {"name": "", "box": "0.500 0.000 1.000 0.500", "text": "girl,\nsecond line"}}
+    # a multi-line card (a preset of appearance / outfit / proportions lines, a blank line
+    # included) comes back exactly, through the PNG info and through the ⟦n⟧ merge
+    from lib_stagehand.characters import merge, split
+
+    card = "girl, red hair,\nblack suit, pencil skirt,\n\nlarge breasts,\nsmug"
+    assert read(show("base", [(1, "Hana", None, card)]))[1][1]["text"] == card
+    assert split(merge("base", {1: card}))[1][1] == card
     # an Undesired Content section with no main negative prompt
     assert show("", [(2, "", None, "tan, dark skin")]) == "Character 2: tan, dark skin"
     assert read("Character 2: tan, dark skin") == ("", {2: {"name": "", "box": "", "text": "tan, dark skin"}})

@@ -20,7 +20,7 @@ import gradio as gr
 import numpy as np
 from PIL import Image
 
-from modules import script_callbacks, scripts
+from modules import script_callbacks, scripts, shared
 from modules.paths_internal import data_path
 
 from backend.args import dynamic_args
@@ -102,9 +102,16 @@ def _pasted_image(params, n):
     return gr.update(value=None)
 
 
+def _enabled() -> bool:
+    """Settings > Stagehand > Precise Reference. Off, show() keeps Forge from building the
+    section or ever running the script, so its XYZ axes and ADetailer hook (set up in ui())
+    never appear either."""
+    return bool(getattr(shared.opts, "stagehand_precise_reference", True))
+
+
 def _defaults_on_paste(infotext, params):
     """Pasting restores the references exactly, including having none."""
-    if "Steps" not in params:
+    if "Steps" not in params or not _enabled():
         return
     params.setdefault("PR in ADetailer", "False")
     for i in range(MAX_REFS):
@@ -221,7 +228,7 @@ class PreciseReference(scripts.Script):
         return "Precise Reference"
 
     def show(self, is_img2img):
-        return scripts.AlwaysVisible
+        return scripts.AlwaysVisible if _enabled() else False
 
     def ui(self, is_img2img):
         _register_xyz()
