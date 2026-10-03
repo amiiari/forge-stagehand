@@ -44,7 +44,7 @@ else. Precise Reference needs two models in `models\precise_reference\` (about 2
   image without deleting it;
 - a name;
 - a **Face** dropdown for ADetailer (leave it on auto; see below);
-- ↑ / ↓ to reorder, ⧉ to duplicate, 🗑 to delete;
+- ↑ / ↓ to reorder, 💾 to save it as a preset, ⧉ to duplicate, 🗑 to delete;
 - **Prompt** and **Undesired Content** tabs.
 
 Write the scene, the style and the count tags (`2girls`, `1boy, 1girl`) in the main prompt,
@@ -56,8 +56,8 @@ PNG info included.
 
 Name a card, then **💾** saves it as a preset: its prompt and Undesired Content exactly as
 typed, line breaks included. Saving a card with the same name again updates the preset. Pick a
-preset in the list next to **+ Add character**, then click it to add a card filled with that
-character; **🗑** next to the list deletes the selected preset (it asks first). Presets live in
+preset in the list next to **+ Add character**, then click **+ Add character** to add a card
+filled with that character; **🗑** next to the list deletes the selected preset (it asks first). Presets live in
 `stagehand character presets.json` in Forge's folder, so updating or reinstalling the
 extension keeps them.
 

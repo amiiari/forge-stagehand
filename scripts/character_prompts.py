@@ -66,12 +66,13 @@ HELP = """<details class="nai-help"><summary>How to use</summary><div>
 <ol>
 <li><b>Main prompt:</b> the scene, the style, and how many people (<code>2girls</code>, <code>1boy, 1girl</code>).
 Don't describe the characters there.</li>
-<li><b>Presets:</b> name a card, then &#128190; saves it (prompt and Undesired Content, line breaks kept). Pick it in
-the list next to <b>+ Add character</b> to add it again; &#128465; next to the list deletes the selected one.</li>
 <li><b>+ Add character</b> adds a card. Describe only that character in its box: hair, eyes, outfit, expression.
 Whatever that character must not have goes under <b>Undesired Content</b>. A card's <b>On</b> / <b>Off</b> pill switches that
 character off without deleting it; the <b>Character Prompts</b> pill in the Stagehand header does that for all of
 them (it works with Stagehand closed).</li>
+<li><b>Presets:</b> name a card, then &#128190; saves it (prompt and Undesired Content, line breaks kept). To use one
+again, pick it in the list next to <b>+ Add character</b>, then click <b>+ Add character</b>; &#128465; next to the list
+deletes the selected preset.</li>
 <li><b>AI's Choice</b> on: the characters stand left to right in card order (&uarr; &darr; to reorder).
 Off: place them yourself, over the output image. <b>Boxes</b>: drag a box by its name tab, resize it by its corner
 dot. <b>Grid</b>: NovelAI's 5&times;5 grid; drag a character's dot to a cell, which marks its center, and each
@@ -661,14 +662,14 @@ class CharacterPrompts(scripts.Script):
                 with gr.Group(visible=False, elem_id=f"nai_{tab}_char{i + 1}", elem_classes=["nai-card", "nai-char-card", f"nai-char-{i + 1}"]) as card:
                     with gr.Row(elem_classes=["nai-card-head"]):
                         enabled = gr.Checkbox(value=True, label="On", container=False, scale=0, min_width=60, elem_classes=["nai-char-on"])
-                        name = gr.Textbox(value="", show_label=False, container=False, placeholder=f"Character {i + 1}", max_lines=1, elem_classes=["nai-char-name"])
+                        name = gr.Textbox(value="", show_label=False, container=False, placeholder=f"Character {i + 1}", max_lines=1, min_width=80, elem_classes=["nai-char-name"])
                         # which of ADetailer's detections gets this character's prompt; auto = by position
-                        face = gr.Dropdown(FACES, value=FACES[0], show_label=False, container=False, scale=0, min_width=170, elem_classes=["nai-char-face"])
-                        up = gr.Button("↑", elem_classes=["nai-icon"], min_width=30, scale=0)
-                        down = gr.Button("↓", elem_classes=["nai-icon"], min_width=30, scale=0)
+                        face = gr.Dropdown(FACES, value=FACES[0], show_label=False, container=False, scale=0, min_width=120, elem_classes=["nai-char-face"])
+                        up = gr.Button("↑", elem_classes=["nai-icon", "nai-up"], min_width=30, scale=0)
+                        down = gr.Button("↓", elem_classes=["nai-icon", "nai-down"], min_width=30, scale=0)
                         save = gr.Button("💾", elem_classes=["nai-icon", "nai-save-preset"], min_width=30, scale=0)
-                        copy = gr.Button("⧉", elem_classes=["nai-icon"], min_width=30, scale=0)
-                        remove = gr.Button("🗑", elem_classes=["nai-icon"], min_width=30, scale=0)
+                        copy = gr.Button("⧉", elem_classes=["nai-icon", "nai-copy"], min_width=30, scale=0)
+                        remove = gr.Button("🗑", elem_classes=["nai-icon", "nai-remove"], min_width=30, scale=0)
                     with gr.Tabs(elem_classes=["nai-char-tabs"]):
                         with gr.Tab("Prompt"):
                             prompt = gr.Textbox(value="", show_label=False, lines=2, placeholder="girl, purple hair, ...", elem_id=f"nai_{tab}_char{i + 1}_prompt")

@@ -32,6 +32,14 @@
     --color-accent-soft: rgba(245, 243, 194, 0.15);
     --slider-color: var(--nai-gold);
     --checkbox-background-color-selected: var(--nai-gold);
+    --checkbox-background-color: var(--nai-input);
+    --checkbox-border-color: var(--nai-border);
+    --checkbox-label-background-fill: var(--nai-input);
+    --checkbox-label-background-fill-hover: var(--nai-border);
+    --checkbox-label-background-fill-selected: var(--nai-border);
+    --checkbox-label-border-color: var(--nai-border);
+    --checkbox-label-text-color: var(--nai-text);
+    --checkbox-label-text-color-selected: var(--nai-text);
     --button-secondary-background-fill: var(--nai-input);
     --button-secondary-background-fill-hover: var(--nai-border);
     --button-secondary-text-color: var(--nai-text);

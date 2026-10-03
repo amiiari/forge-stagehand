@@ -19,6 +19,8 @@
     const field = (id) => el(id)?.querySelector("textarea, input");
     const checkbox = (id) => el(id)?.querySelector("input[type=checkbox]");
 
+    const setText = (node, text) => node && node.textContent !== text && (node.textContent = text);
+
     function setValue(input, value) {
         if (!input) return;
         input.value = value;
@@ -113,6 +115,7 @@
             const feature = pill.dataset.feature;
             const on = featureOn(id, feature);
             pill.classList.toggle("nai-on", on);
+            if (pill.getAttribute("aria-pressed") !== String(on)) pill.setAttribute("aria-pressed", String(on));
             const count = on && counts[feature] ? ` ${counts[feature]}` : "";
             const badge = pill.querySelector(".nai-pill-count");
             if (badge.textContent !== count) badge.textContent = count;
@@ -210,10 +213,15 @@
         for (const [main, kind] of [[`${tab}_prompt`, "prompt"], [`${tab}_neg_prompt`, "uc"]]) {
             const input = field(main);
             // on paste only: while typing, "Character 1:" would be pulled out mid-sentence
-            input?.addEventListener("paste", () => setTimeout(() => {
-                const parsed = readLines(input.value);
-                if (parsed) fill(tab, id, input, kind, parsed, true);
-            }, 0));
+            input?.addEventListener("paste", (e) => {
+                // a tag pasted into a prompt that already has character lines mustn't reset the cards
+                const pasted = e.clipboardData?.getData("text") || "";
+                if (!pasted.split("\n").some((line) => LABEL.test(line))) return;
+                setTimeout(() => {
+                    const parsed = readLines(input.value);
+                    if (parsed) fill(tab, id, input, kind, parsed, true);
+                }, 0);
+            });
         }
     }
 
@@ -354,7 +362,8 @@
         let overlay = el(`nai_${id}_positions`);
         const auto = checkbox(`nai_${id}_chars_auto`);
         const chars = characters(id);
-        const f = auto && !auto.checked && chars.length ? frame(tab) : null;
+        const open = el(`nai_${id}_stagehand`)?.open;
+        const f = open && auto && !auto.checked && chars.length ? frame(tab) : null;
         if (!f) {
             if (overlay) overlay.style.display = "none";
             return;
@@ -391,10 +400,10 @@
             }
             if (grid) {
                 const at = cell(c.input?.value) || cell(defaultCell(k, chars.length));
-                div.querySelector(".nai-pos-label").textContent = `${c.label} · ${cellName(at[0], at[1])}`;
+                setText(div.querySelector(".nai-pos-label"), `${c.label} · ${cellName(at[0], at[1])}`);
                 placeDot(div, [(at[0] + 0.5) / GRID, (at[1] + 0.5) / GRID]);
             } else {
-                div.querySelector(".nai-pos-label").textContent = c.label;
+                setText(div.querySelector(".nai-pos-label"), c.label);
                 // no saved position yet: AI's Choice columns, which is also what the backend uses
                 place(div, parse(c.input?.value) || [k / chars.length, 0, (k + 1) / chars.length, 1]);
             }
@@ -411,6 +420,11 @@
             ".nai-save-preset": "Save this character as a preset under its name (saving again updates it). Newlines are kept.",
             ".nai-preset": "Character presets: pick one, then + Add character adds a card filled with it",
             ".nai-delete-preset": "Delete the selected preset",
+            ".nai-up": "Move this character up (earlier = further left with AI's Choice)",
+            ".nai-down": "Move this character down (later = further right with AI's Choice)",
+            ".nai-copy": "Duplicate this character",
+            ".nai-remove": "Delete this character",
+            ".nai-remove-ref": "Remove this reference",
             [`#nai_${id}_chars_auto`]: "On: the characters stand left to right in card order. Off: place them yourself, on the output image",
             [`#nai_${id}_chars_manual`]: "Boxes: drag and resize a box per character. Grid: NovelAI's 5x5 grid, a dot where each character's head goes",
             [`#nai_${id}_pr_adetailer`]: "Also use the references in ADetailer's face pass, for this generation",

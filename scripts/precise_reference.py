@@ -281,7 +281,7 @@ class PreciseReference(scripts.Script):
                                     container=False,
                                     elem_id=f"nai_{tab}_pr{i + 1}_type",
                                 )
-                                remove = gr.Button("🗑", elem_classes=["nai-icon"], min_width=36, scale=0)
+                                remove = gr.Button("🗑", elem_classes=["nai-icon", "nai-remove-ref"], min_width=36, scale=0)
                             strength = gr.Slider(label="Strength", minimum=-1.0, maximum=2.0, step=0.01, value=1.0)
                             fidelity = gr.Slider(label="Fidelity", minimum=0.0, maximum=1.0, step=0.01, value=1.0)
                 cards.append(card)
