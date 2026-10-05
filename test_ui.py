@@ -109,11 +109,15 @@ async def check_characters(page, tmp):
     await page.type("#nai_t2i_char2_prompt textarea", CHAR2)
     info = await page.generate()
     assert f"Character 1: {CHAR1}" in info and f"Character 2: {CHAR2}" in info, f"characters missing from the PNG info:\n{info}"
-    # Tag Autocomplete (when installed) attaches to boxes that exist at page load; the cards'
-    # boxes appear later and are handed to it by stagehand.js
-    if await page.js("typeof addAutocompleteToArea === 'function'"):
-        attached = "['prompt', 'uc'].every(k => gradioApp().querySelector(`#nai_t2i_char1_${k} textarea`)?.classList.contains('autocomplete'))"
+    # Tag Autocomplete (when installed) only finds the main boxes; stagehand.js hands it the
+    # cards', which follow its txt2img and negative prompt settings like the main boxes
+    if await page.js("typeof addAutocompleteToArea === 'function' && !!window.TAC_CFG?.activeIn?.txt2img"):
+        kinds = ["prompt", "uc"] if await page.js("TAC_CFG.activeIn.negativePrompts") else ["prompt"]
+        attached = f"{json.dumps(kinds)}.every(k => gradioApp().querySelector(`#nai_t2i_char1_${{k}} textarea`)?.classList.contains('autocomplete'))"
         assert await page.wait(attached, 15), "Tag Autocomplete isn't attached to the character boxes"
+        # what its settings and use counts go by: "n" means negative
+        ids = await page.js("['prompt', 'uc'].map(k => getTextAreaIdentifier(gradioApp().querySelector(`#nai_t2i_char1_${k} textarea`)))")
+        assert "txt2img" in ids[0] and "n" not in ids[0] and "n" in ids[1], f"Tag Autocomplete misreads the character boxes: {ids}"
         print("ok  Tag Autocomplete works in the character boxes")
     out = os.path.join(tmp, "ui_check.png")
     await page.gallery_image(out)

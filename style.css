@@ -166,14 +166,10 @@
     border-left: 3px solid var(--nai-char) !important;
 }
 
-/* Tag Autocomplete's suggestion list hangs below the prompt box: the card mustn't clip it */
-.nai-panel .nai-char-card,
+/* Tag Autocomplete's suggestion list hangs below the prompt box: the card mustn't clip it
+   (Forge already unclips the card itself, as a gradio-group) */
 .nai-panel .nai-char-card .styler {
     overflow: visible !important;
-}
-
-.nai-panel .nai-char-card .autocompleteResults {
-    z-index: 50;
 }
 
 /* the card's name: looks like a title, underlined on hover so it reads as editable */
@@ -270,7 +266,9 @@
     content: "On";
 }
 
-.nai-panel .nai-char-card:has(.nai-char-on input:not(:checked)) .nai-char-tabs {
+/* Not on .nai-char-tabs itself: Tag Autocomplete's suggestion list hangs inside it, and would
+   come out see-through and drawn under the next card */
+.nai-panel .nai-char-card:has(.nai-char-on input:not(:checked)) .nai-char-tabs :is(.tab-nav, textarea) {
     opacity: 0.45;
 }
 

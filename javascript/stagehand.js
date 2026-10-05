@@ -411,21 +411,32 @@
         overlay.querySelectorAll("[data-key]").forEach((d) => keep.has(d.dataset.key) || d.remove());
     }
 
-    // Tag Autocomplete (when installed) attaches to the prompt boxes it finds when the page
-    // loads; a card's boxes only exist once the card is shown, so they're handed to it as they
-    // appear (once each: it skips a box it's already on, or one its settings leave out).
-    const offered = new WeakSet();
-    function autocomplete(id) {
-        if (typeof addAutocompleteToArea !== "function" || typeof TAC_CFG === "undefined" || !TAC_CFG) return;
-        for (let n = 1; n <= MAX; n++) {
-            for (const kind of ["prompt", "uc"]) {
-                const area = el(`nai_${id}_char${n}_${kind}`)?.querySelector("textarea");
-                if (!area || offered.has(area)) continue;
-                offered.add(area);
-                try {
-                    addAutocompleteToArea(area);
-                } catch (e) {
-                    console.warn("[Stagehand] Tag Autocomplete couldn't attach to a character box", e);
+    // Tag Autocomplete (when installed) only finds the main prompt boxes, so the cards' boxes
+    // are handed to it once its setup is done (and its CSS is in). It tells boxes apart by an
+    // identifier it reads with includes("txt2img"), includes("img2img") and includes("n") for
+    // negative, and would call the cards generic third-party boxes: they get identifiers of
+    // their own instead (no other "n"), so its txt2img / img2img / negative prompt settings
+    // and its positive / negative use counts apply to them as to the main boxes.
+    const tacIds = new WeakMap();
+    let tacAttached = false;
+    function attachAutocomplete() {
+        if (tacAttached || !window.TAC_CFG || window.tacLoading) return;
+        if (typeof addAutocompleteToArea !== "function" || typeof getTextAreaIdentifier !== "function") return;
+        tacAttached = true;
+        const identifier = getTextAreaIdentifier;
+        window.getTextAreaIdentifier = (area) => tacIds.get(area) ?? identifier(area);
+        // every card's boxes exist from page load, hidden or not
+        for (const [tab, id] of TABS) {
+            for (let n = 1; n <= MAX; n++) {
+                for (const kind of ["prompt", "uc"]) {
+                    const area = field(`nai_${id}_char${n}_${kind}`);
+                    if (!area) continue;
+                    tacIds.set(area, `.${tab}-char${n}${kind === "uc" ? "-n" : ""}`);
+                    try {
+                        addAutocompleteToArea(area);
+                    } catch (e) {
+                        console.warn("[Stagehand] Tag Autocomplete couldn't attach to a character box", e);
+                    }
                 }
             }
         }
@@ -465,12 +476,14 @@
         }
         // Cheap and robust against everything that can change the layout (cards, toggles,
         // a new image, resizing); positions aren't re-placed while one is being dragged.
-        setInterval(() => TABS.forEach(([tab, id]) => {
-            unmerge(tab, id);
-            sync(id);
-            render(tab, id);
-            tooltips(id);
-            autocomplete(id);
-        }), 400);
+        setInterval(() => {
+            TABS.forEach(([tab, id]) => {
+                unmerge(tab, id);
+                sync(id);
+                render(tab, id);
+                tooltips(id);
+            });
+            attachAutocomplete();
+        }, 400);
     });
 })();
