@@ -294,6 +294,73 @@ def test_crop_places():
     assert crop_places(columns, None, (1024, 768)) is columns  # not inpainting: unchanged
 
 
+def _character_prompts_module():
+    """scripts/character_prompts.py with Forge stubbed out: only its pure helpers run."""
+    import importlib.util
+    import sys
+    from types import ModuleType
+    from unittest.mock import MagicMock
+
+    stubs = {name: MagicMock() for name in ("gradio", "modules", "modules.processing", "modules.prompt_parser",
+                                            "modules.script_callbacks", "modules.scripts", "modules.sd_samplers",
+                                            "modules.shared", "modules.paths_internal", "modules.processing_scripts",
+                                            "modules.processing_scripts.comments", "backend", "backend.nn",
+                                            "backend.nn.anima")}
+    stubs["modules.paths_internal"].data_path = "."
+    stubs["modules.processing_scripts.comments"].strip_comments = lambda text: text
+    stubs["modules.scripts"].Script = type("Script", (), {})
+    stubs["modules"].scripts = stubs["modules.scripts"]
+    saved = {k: sys.modules.get(k) for k in stubs}
+    sys.modules.update(stubs)
+    try:
+        spec = importlib.util.spec_from_file_location("character_prompts_under_test", "scripts/character_prompts.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                sys.modules.pop(k, None)
+            else:
+                sys.modules[k] = v
+
+
+def test_prompt_lines():
+    """forge link forwards a slot's cards as PNG-info lines; they must read back as the same cards."""
+    from lib_stagehand.characters import read
+
+    cp = _character_prompts_module()
+    script = cp.CharacterPrompts()
+
+    def args(auto, cards, on=True, manual="Boxes"):
+        flat = [auto]
+        for i in range(cp.MAX_CHARS):
+            flat += list(cards[i]) if i < len(cards) else [True, "", "", "", ""]
+        return flat + [cp.FACES[0]] * cp.MAX_CHARS + [on, manual]
+
+    ren = (True, "Ren", "girl, dark blue hair, source#hug", "blonde hair", "0.000 0.000 0.500 1.000")
+    kira = (True, "", "girl, black hair\nwhite tips", "", "0.500 0.000 1.000 1.000")
+    # AI's Choice: no positions written, both cards and Ren's Undesired Content come back
+    pos, neg = script.prompt_lines("2girls, cafe", "bad hands", *args(True, [ren, kira]))
+    base, chars = read(pos)
+    assert base == "2girls, cafe" and [c["text"] for c in chars.values()] == [ren[2], kira[2]], (base, chars)
+    assert chars[1]["name"] == "Ren" and chars[1]["box"] == "" and chars[2]["box"] == ""
+    nbase, ucs = read(neg)
+    assert nbase == "bad hands" and ucs[1]["text"] == "blonde hair" and 2 not in ucs, (nbase, ucs)
+    # Boxes: each card's box goes along
+    pos, _ = script.prompt_lines("2girls", "", *args(False, [ren, kira]))
+    assert [c["box"] for c in read(pos)[1].values()] == [ren[4], kira[4]], pos
+    # Grid: the cell
+    pos, _ = script.prompt_lines("2girls", "", *args(False, [(*ren[:4], "B3"), (*kira[:4], "D3")], manual="Grid"))
+    assert [c["box"] for c in read(pos)[1].values()] == ["B3", "D3"], pos
+    # Character Prompts switched off, or no card with text: untouched
+    assert script.prompt_lines("x", "y", *args(True, [ren], on=False)) == ("x", "y")
+    assert script.prompt_lines("x", "y", *args(True, [])) == ("x", "y")
+    # a prompt that already carries its own character lines keeps them, as before_process would
+    pasted = "x\n\nCharacter 1: girl, red hair"
+    assert script.prompt_lines(pasted, "", *args(True, [ren])) == (pasted, "")
+
+
 def test_png_info_lines():
     from lib_stagehand.characters import read, show
 

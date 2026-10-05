@@ -783,6 +783,25 @@ class CharacterPrompts(scripts.Script):
             return None
         return [True] + [x for _ in range(MAX_CHARS) for x in (True, "", "", "", "")] + faces + [True, MANUAL[0]]
 
+    def prompt_lines(self, prompt, negative, *args):
+        """(prompt, negative) with this job's cards written in as the PNG info's character
+        lines -- the form an API caller sends, which before_process reads back as cards on the
+        Forge that runs the job (forge link's slots forward their jobs that way). Unchanged
+        when there are no cards, or when the prompt already carries its own lines or marks
+        (before_process would ignore the cards then too)."""
+        if not isinstance(prompt, str) or not isinstance(negative, str) or read(prompt)[1] or has_marks(prompt):
+            return prompt, negative
+        on, manual = _tail(args)
+        characters = _characters(args) if on else []
+        if not characters:
+            return prompt, negative
+        auto = bool(args[0])
+        places = None if auto else _places(characters, auto, manual)
+        positive = show(prompt, [(n, name, None if auto else _format_place(places[n]), text)
+                                 for n, name, text, _uc, _box, _face in characters])
+        negative = show(negative, [(n, "", None, uc) for n, _name, _text, uc, _box, _face in characters])
+        return positive, negative
+
     def before_process(self, p, *args):
         if getattr(p, "_ad_inner", False):
             return
