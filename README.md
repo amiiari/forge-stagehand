@@ -1,22 +1,37 @@
 # Stagehand
 
-Multi-character prompting and image references for Forge Neo on **Anima**: who's in the
-picture, where they stand, what they look like. Modeled on NovelAI's versions of these
-features, and laid out like them:
+ahahah hi! i hope you find this repo useful, used opus 5.5 to make this extension after ironing out most of the details for how the logic would work!
+anyways yeah, 2+ character generations on anima were possible but ugh still annoying, however 10x easier compared to the old CLIP infrastructure that illustrious and pony had.
 
-- **Character Prompts**: a prompt box per character, placed automatically, with boxes you drag
-  over the output, or on NovelAI's 5×5 grid
-  ([NovelAI's multi-character prompting](https://docs.novelai.net/en/image/multiplecharacters/)).
-- **Precise Reference**: reference image cards with a type, Strength and Fidelity
-  ([NovelAI's Precise Reference](https://docs.novelai.net/en/image/precisereference/)).
+so yeah, this extension is supposed to generally make things easier on forge neo for putting characters 
+in the right spot! especially when it comes to doing 2+ character images, i've tested with 4 and it turned 
+out pretty good! you can drag a character's dot thing and it'll snap to a 5x5 grid, however i doubt it would 
+listen thaat much, but it does work for the most part! but yeah the normal feature with the ai's choice evenly 
+distributes a regional prompting area depending on how many characters are actually in the image. if you'd 
+rather be more specific (even more than the dragging thing) you can set it to boxes, where you can manually 
+resize each box yourself etc. etc. yeah... it uses the same source# and target# notation that novel uses too (i hope)
 
-Both sit under the prompt boxes in txt2img and img2img, in one **Stagehand** fold-out. Its
-header has an on/off pill per feature that works with the fold-out closed: off hides the
-section and leaves the feature out of the next image, but keeps its cards. Each section ends
-with a **How to use** fold-out.
+i havent tried much NSFW stuff so yeah that might be a limitation. 
 
-Anima wasn't trained for either feature the way NovelAI's model was, so both are done at
-generation time. [NOTES.md](NOTES.md) has how, and what the testing found.
+um theres also the precise reference or in forge terms, controlnet's ipadapter, so you throw in an image 
+(i suggest decently large though LMFAO), and it will generate a small lora based on the input images and then 
+apply it to the images, i honestly cant imagine using this feature much BUT on the off chance i do, i'd like 
+to have it ahahaha, it definitely works! but ehhh if i had a commission of a character that anima didnt know 
+i wouldnt really rely on it. 
+
+in the settings i have opened up some? of the internals? with some parameters that you can edit since results 
+on different models and parameters definitely would differ. i based the defaults on the best outcomes that i 
+got myself after hours of A/B testing so yes! feel free to edit those if you'd like. 
+
+some things you should know:
+- THIS ONLY WORKS FOR ANIMA !!!!!!!!!!!!!!!!!!!!!!!!!!
+- precise reference will not work well i think? with 2+ characters so just know that too
+- this extension is definitely not perfect!!! just keep that in mind!
+
+## thank you for visiting! and using even?! i hope this repo ends up being useful to you.
+
+okay! anyways, i will let opus 5.5 take it from here with a more in depth explanation of the details and stuff 
+i'd rather not type LMAO 
 
 ## Settings
 
