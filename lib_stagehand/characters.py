@@ -244,6 +244,14 @@ def pick(schedule, step: int):
     return next((tokens for end, tokens in schedule if step <= end), schedule[-1][1])
 
 
+def cat_schedules(a, b):
+    """Two schedules' tokens end to end, switching whenever either one does."""
+    if not a or not b:
+        return a or b
+    ends = sorted({end for end, _ in a} | {end for end, _ in b})
+    return [(end, torch.cat([pick(a, end), pick(b, end)])) for end in ends]
+
+
 def cross_kv(module, context):
     """k and v exactly as SelfCrossAttention.compute_qkv makes them for a cross-attention,
     without recomputing q (ControlLLLite's q_proj hook isn't called an extra time)."""
@@ -266,14 +274,20 @@ class RegionSession:
     character's, projected once per block and cached: K/V projections act per token and
     zero padding projects to zero, so this equals projecting region_context() -- without
     re-projecting the 512-token base for every region of every block of every step.
+
+    Settings > Stagehand: whole -- the schedules are each region's entire context, not extras
+    after the base (the default; whole=False is the behaviour above); strength -- how far a
+    region's attention replaces the base's (1 = all the way).
     """
 
-    def __init__(self, boxes, images, step, patch=2, blur=1.5):
+    def __init__(self, boxes, images, step, patch=2, blur=1.5, whole=False, strength=1.0):
         self.boxes = list(boxes)
         self.images = images
         self.step = step
         self.patch = patch
         self.blur = blur
+        self.whole = whole
+        self.strength = strength
         self.grid = None
         self._weights = {}
         self._kv = {}
@@ -352,6 +366,10 @@ class RegionSession:
                     continue
                 k_char, v_char = self._char_kv(module, tokens, context)
                 rows.append(b)
+                if self.whole:
+                    keys.append(k_char.to(k))
+                    values.append(v_char.to(v))
+                    continue
                 keys.append(torch.cat([k_rows[b, : lengths[b]], k_char.to(k)], 0))
                 values.append(torch.cat([v_rows[b, : lengths[b]], v_char.to(v)], 0))
             if not rows:
@@ -362,7 +380,7 @@ class RegionSession:
             region = module.torch_attention_op(q[rows], k_r, v_r, transformer_options=options)
             if out is None:
                 out = base.clone()
-            out[rows] += weights[r][None, :, None] * (region - base[rows])
+            out[rows] += self.strength * weights[r][None, :, None] * (region - base[rows])
         return module.output_dropout(module.output_proj(base if out is None else out))
 
 

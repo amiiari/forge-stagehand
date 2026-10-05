@@ -234,6 +234,39 @@ def test_region_session():
     assert torch.allclose(session.attend(module, *qkv, context, {"cond_indices": [0]}), plain)
 
 
+def test_region_whole_and_strength():
+    from lib_stagehand.characters import RegionSession, cat_schedules
+
+    torch.manual_seed(0)
+    module = FakeCross(4)
+    context = torch.zeros(2, 1, 512, 4)
+    context[:, 0, :3] = torch.randn(3, 4)
+    x = torch.randn(2, 8, 4)
+    one_pass = torch.randn(5, 4)  # a region's whole context: main prompt and card in one pass
+    options = {"cond_indices": [0], "uncond_indices": [1]}
+    qkv = module.compute_qkv(x, context)
+    plain = module.torch_attention_op(*qkv)
+    whole_ctx = torch.zeros(1, 1, 512, 4)
+    whole_ctx[0, 0, :5] = one_pass
+    alone = module.torch_attention_op(*module.compute_qkv(x[:1], whole_ctx))
+
+    def session(**kw):
+        s = RegionSession([(0.0, 0.0, 1.0, 1.0)], images=[[([(30, one_pass)], None)]], step=lambda: 10, blur=0, whole=True, **kw)
+        s.modifier(None, torch.zeros(1, 4, 1, 4, 8), None, None, None, None, None, None)
+        return s.attend(module, *qkv, context, options)
+
+    # one card over the whole frame, whole context: exactly the one-pass prompt's attention
+    assert torch.allclose(session()[0], alone[0], atol=1e-6)
+    # strength 0.5: halfway between the base and the region
+    assert torch.allclose(session(strength=0.5)[0], (plain[0] + alone[0]) / 2, atol=1e-6)
+
+    a, b = torch.ones(2, 4), torch.zeros(3, 4)
+    joined = cat_schedules([(5, a), (30, a * 2)], [(17, b), (30, b + 1)])
+    assert [end for end, _ in joined] == [5, 17, 30] and [len(t) for _, t in joined] == [5, 5, 5]
+    assert joined[1][1][:2].eq(2).all() and joined[1][1][2:].eq(0).all() and joined[2][1][2:].eq(1).all()
+    assert cat_schedules(None, [(30, b)]) == [(30, b)]
+
+
 def test_translate_actions():
     from lib_stagehand.characters import auto_boxes, translate_actions
 

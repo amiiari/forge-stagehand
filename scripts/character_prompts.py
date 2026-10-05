@@ -33,6 +33,7 @@ from lib_stagehand.characters import (
     crop_places,
     RegionSession,
     auto_boxes,
+    cat_schedules,
     center,
     default_cells,
     format_cell,
@@ -204,6 +205,37 @@ def _encode(p, texts, steps, hires_steps):
             entries.append((entry.end_at_step, tokens[: real_length(tokens)].detach()))
         out[text] = entries
     return out
+
+
+def _card_mode():
+    """How cards are read (Settings > Stagehand), or {} for the old way (separate, full strength).
+    "global": the main prompt Forge encodes carries every card too, so whatever isn't a
+    region -- outside the boxes, under a region's partial strength -- is the one-prompt image."""
+    opts = shared.opts
+    x = {"one_pass": bool(getattr(opts, "stagehand_cp_one_pass", True)),
+         "strength": float(getattr(opts, "stagehand_cp_region_strength", 0.65))}
+    x["global"] = x["strength"] < 1
+    x["whole"] = x["one_pass"] or x["global"]
+    if not x["whole"]:
+        return {}
+    x["label"] = "; ".join(label for on, label in (
+        (x["one_pass"], "one pass"), (x["global"], f"strength {x['strength']:g}")) if on)
+    return x
+
+
+def _whole_regions(p, images, numbers, hr, x, steps):
+    """Each region's entire context, positive and negative: its main prompt and card in one
+    pass, or each encoded alone and joined (the old way's context, rebuilt because the main
+    prompt Forge encoded may now carry every card)."""
+    kind, uc_kind = ("hr_prompt", "hr_uc") if hr else ("prompt", "uc")
+    pairs = [[((image["main_" + kind], image["encode_" + kind].get(n)), (image["main_" + uc_kind], image[uc_kind].get(n)))
+              for n in numbers] for image in images]
+    flat = [pair for row in pairs for both in row for pair in both]
+    if x["one_pass"]:
+        encoded = _encode(p, [_join(a, b) for a, b in flat], *steps)
+        return [[tuple(encoded.get(_join(a, b)) for a, b in both) for both in row] for row in pairs]
+    encoded = _encode(p, [t for pair in flat for t in pair], *steps)
+    return [[tuple(cat_schedules(encoded.get(a), encoded.get(b)) for a, b in both) for both in row] for row in pairs]
 
 
 # ---------------------------------------------------------------------------- UI callbacks
@@ -415,6 +447,16 @@ def _settings():
         True, "Precise Reference", gr.Checkbox, section=("stagehand", "Stagehand"),
     ).info("off removes it completely: its section and pill under the prompt, its paste handling, "
            "its XYZ Plot axes and its ADetailer hook").needs_reload_ui())
+    # How cards are read (NOTES.md, "The card look"). Read on their own and glued on at full
+    # strength, cards gave images a look of their own; the defaults won blind tests against
+    # that. Off + 1.0 is the old behaviour. Images record what they used ("Char cards").
+    for key, default, label, component, extra in (
+        ("stagehand_cp_one_pass", True, "Character Prompts: read each card together with the main prompt",
+         gr.Checkbox, None),
+        ("stagehand_cp_region_strength", 0.65, "Character Prompts: card strength (each character's area follows her card this much; "
+         "the rest is one prompt with every card)", gr.Slider, {"minimum": 0, "maximum": 1, "step": 0.05}),
+    ):
+        shared.opts.add_option(key, shared.OptionInfo(default, label, component, extra, section=("stagehand", "Stagehand")))
 
 
 script_callbacks.on_ui_settings(_settings)
@@ -839,6 +881,9 @@ class CharacterPrompts(scripts.Script):
             return
         boxes = [info["boxes"][n] for n in info["numbers"]]
         start = batch_number * p.batch_size
+        x = info["x"] = _card_mode()  # read here: API override_settings are in effect by now
+        if x:
+            p.extra_generation_params["Char cards"] = x["label"]
         for k in range(len(p.prompts)):
             image = info["images"].get(start + k)
             if image is None:
@@ -851,6 +896,15 @@ class CharacterPrompts(scripts.Script):
                 image["encode_" + kind] = {n: t for n, t in zip(info["numbers"], cleaned) if t}
                 if phrases and prompts is not None and k < len(prompts):
                     prompts[k] = f"{prompts[k]}, {', '.join(phrases)}"
+                if x.get("whole") and prompts is not None and k < len(prompts):
+                    image["main_" + kind] = prompts[k]
+                    if x["global"]:
+                        prompts[k] = _join(prompts[k], *image["encode_" + kind].values())
+            for kind, negatives in (("uc", p.negative_prompts), ("hr_uc", getattr(p, "hr_negative_prompts", None))):
+                if x.get("whole") and negatives is not None and k < len(negatives):
+                    image["main_" + kind] = negatives[k]
+                    if x["global"]:
+                        negatives[k] = _join(negatives[k], *(image[kind].get(n) for n in info["numbers"]))
 
     def process_before_every_sampling(self, p, *args, **kwargs):
         info = getattr(p, "_nai_chars", None)
@@ -870,17 +924,23 @@ class CharacterPrompts(scripts.Script):
         if any(image is None for image in images):
             print("[Character Prompts] characters missing for this batch -- skipped.")
             return
-        kind, uc_kind = ("encode_hr_prompt", "hr_uc") if hr else ("encode_prompt", "uc")
-        texts = [image[key].get(n) for image in images for key in (kind, uc_kind) for n in info["numbers"]]
-        encoded = _encode(p, texts, *_schedule_steps(p, hr))
-
-        regions = [[(encoded.get(image[kind].get(n)), encoded.get(image[uc_kind].get(n))) for n in info["numbers"]] for image in images]
+        x = info.get("x") or {}
+        steps = _schedule_steps(p, hr)
+        if x.get("whole"):
+            regions = _whole_regions(p, images, info["numbers"], hr, x, steps)
+        else:
+            kind, uc_kind = ("encode_hr_prompt", "hr_uc") if hr else ("encode_prompt", "uc")
+            texts = [image[key].get(n) for image in images for key in (kind, uc_kind) for n in info["numbers"]]
+            encoded = _encode(p, texts, *steps)
+            regions = [[(encoded.get(image[kind].get(n)), encoded.get(image[uc_kind].get(n))) for n in info["numbers"]] for image in images]
         denoiser = p.sampler.model_wrap_cfg
         session = RegionSession(
             _in_crop(p, [info["boxes"][n] for n in info["numbers"]]),
             regions,
             step=lambda: denoiser.step,
             patch=getattr(diffusion_model, "patch_spatial", 2),
+            whole=bool(x.get("whole")),
+            strength=x.get("strength", 1.0),
         )
         unet = unet.clone()
         unet.set_transformer_option(anima_hooks.REGIONS_KEY, session)

@@ -25,10 +25,14 @@ without one runs the original. Blocks are found by class, not by count.
 NovelAI's model was trained to read per-character captions. Anima wasn't, so this is regional
 prompting on its cross-attention:
 
-- Each character's region attends to the main prompt's tokens plus its own, encoded
-  separately.
-- Everywhere else attends to the main prompt alone.
+- Each character's region attends to the main prompt and its own card, read together in one
+  pass, blended 65/35 with one prompt that holds every card (see "The card look" below).
+- Everywhere else attends to that one prompt with every card.
 - Undesired Content does the same on the negative pass.
+
+Until 2026-10-05 a region attended to the main prompt's tokens plus its card's, encoded
+separately, and everywhere else to the main prompt alone. Settings > Stagehand still gives
+that: card reading off, strength 1.
 
 Tested on two characters whose descriptions bleed into each other in one prompt (hair colors,
 glasses and jackets swap). With Character Prompts each kept its own attributes on every seed,
@@ -59,13 +63,58 @@ prompt. Measured over 4 scenes x 4 seeds (2026-10-03):
 
 - It isn't CFG: CFG barely moves saturation on Anima, either way.
 - It isn't the regional machinery: one card holding every character's text reproduces the
-  plain prompt within rounding (~3/255).
+  plain prompt within rounding (~3/255). (With the style tags in the main prompt and the
+  character in a card, the separate encoding alone moves a single-card image 23-30/255:
+  see "The card look".)
 - It's the split itself: each character's area attends to the main prompt and its own card
   only, so its tags get the attention they'd otherwise share with the other cards. Keeping
   the other cards' keys (values zeroed, so nothing of them leaks in) restores that share and
   halves the burnt pixels -- but weakens each card the same way: a character's weaker traits
   (Ren's dark blue hair) held on 1 of 4 seeds instead of 3. Not adopted.
 - Hires fix and ADetailer don't change saturation.
+
+### The card look (2026-10-04/05)
+
+A card made images look different from the same tags typed into the prompt: heavier shading,
+glossier skin, details drifting, "like the style LoRA at a very high strength". It isn't the
+LoRA (applied once, at its weight) or the seed. The card was encoded on its own and glued onto
+the main prompt inside the model, so the character never met the style tags in the text
+encoder, and the model never saw two glued prompts in training. A single full-frame card,
+same seed, against the same text as one prompt: 23-30/255 apart, up to 53.
+
+Four fixes, 12 versions of 24 scene/seed pairs (288 images, base txt2img):
+
+- **One pass**: each region reads its main prompt and card encoded together. A lone card is
+  then the one-prompt image: 0.0/255 when nothing else blends in (1.5-11/255 of GPU rounding
+  when it is blended at full strength). On groups it held traits like before (13/15) but
+  stayed saturated (+7.8% against one prompt).
+- **Regions for the first part of the steps**, then one prompt: traits leak back (5/15
+  clean at 30%, no gain over the old way at 70%). Identity settles late, not only layout.
+- **Strength**: each region's attention blended with one prompt holding every card. Below
+  0.5 traits leak (3/15 at 0.3); 0.5-0.7 kept every major trait on 15/15, including Ren's
+  dark blue hair, which the old way lost twice. Saturation +3-5% instead of +8.8%.
+- **No card end-of-text**: worse (11/15, Ren's hair orange more often).
+
+Then blind tests, ranked by eye with the versions shuffled:
+
+- One card, 0 to 0.7 of the glued card mixed back in (8 images): the ranking fell almost in
+  strength order; 0 (the one-prompt image) averaged 2.50 of 6, 0.7 averaged 4.81.
+- Groups (12 images, 9 versions): one pass at 0.7 averaged 4.83 of 9, the same 0.7 without
+  it 6.67, the old way 8.75 (last or second-to-last on 12/12).
+- Groups, one pass at 0.65 / 0.75 / 0.85, over both rounds (24 images, 10 with interactions:
+  kabedon, hugs, arm around neck, holding hands, headpat, back to back, feeding): average
+  rank of 3 was 1.92 / 2.04 / 2.04; 0.65 first on 11. The three are often near-identical
+  (5-8/255 on half the scenes); the scenes that preferred 0.85 were mostly Akira's (dark
+  skin, large tattoo) and a three-way hug.
+
+So the default is one pass at 0.65. A lone card is unaffected by the strength: it's always
+the one-prompt image.
+
+- **Hires fix** (x1.25, denoise 0.3) only refines what the first pass made. A lone card with
+  hires is pixel-identical to the typed prompt with hires. The hires pass at strength 0,
+  0.2, 0.35, 0.5 or 0.65 came out near-identical, so it simply uses the first pass's.
+- **ADetailer** is unaffected: each face is repainted with one prompt (main prompt + its
+  card) and no regions, whatever the setting.
 
 ### Positions
 
