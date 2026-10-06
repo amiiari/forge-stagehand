@@ -157,7 +157,17 @@ Where places overlap, each spot used to be split evenly. Each card now has a sha
 to the same total, so the background's part of a blurred edge, and a spot one character has
 alone, don't change. 0% keeps a sliver (0.1) so a spot claimed only by 0% cards still splits.
 It travels as `, share N%` in the character's line, written only when it isn't 50, so older
-PNG info and API callers read as before. Not A/B tested yet on the lap-pillow case it's for.
+PNG info and API callers read as before.
+
+Blind test (2026-10-06, five overlap-heavy poses x front 75% / even / front 25%, same seed):
+no signal. 75% won twice, even twice, 25% never, and 75% also came last twice. The scenes
+themselves failed: with big, heavily overlapping boxes both cards blend in the overlap -- a
+lying girl wore the seated girl's boots and fishnets, at 25% she took her hairband; a hug
+from behind shrank the front girl into a small figure inside the other's arms ("combined").
+Even shares compute exactly the old weights, so this is the layout, not a regression. Kept
+(harmless at 50), but it is not the fix for lap / carry poses; what is, is still open --
+smaller places that overlap only where the bodies touch, and Grid dots on the heads, are
+the next things to try.
 
 ### Interaction tags
 
@@ -285,6 +295,23 @@ Three deliberate differences from the ComfyUI node:
   node, which scales the SigLIP tokens before projections that have biases.
 - **Transparency is flattened onto white** before encoding. A plain RGB conversion turns it
   black, and the reference transfers that.
+
+### Fidelity A/B (2026-10-06)
+
+The friend's X/Y/Z complaint ("connected to the wrong parameter") was not wiring: each X/Y/Z
+cell matched the same values set by hand pixel for pixel. Fidelity just changes little over
+part of its range. Two other meanings were tried against the current one (strength 1, a
+fox-girl reference, a cafe prompt that contradicts it, two seeds, fidelity 0-1):
+
+- **current** (how much CFG amplifies the reference): reads like NovelAI's fidelity -- 0 keeps
+  the gist (hair, ears), 1 copies outfit, markings and ornaments. Most of the change sits in
+  one step, between 0.5 and 0.75 here (between 0 and 0.5 in the friend's grid).
+- **pooled tokens** (SigLIP's grid averaged at low fidelity): noise below 0.75. Out of
+  distribution for the adapter.
+- **late blocks scaled by fidelity**: barely any effect at any value.
+
+Picked by eye: the current one, on both seeds. Unsolved: an even slider (where the step
+falls depends on the reference and the strength).
 
 ### Cost
 
