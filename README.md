@@ -293,8 +293,8 @@ python test_api.py             # the API: Forge must be running with --api
 
 `test_ui.py` generates three small images: characters from the cards, pasting them back, and
 a reference from a card. It also saves, re-adds and deletes a character preset (and never
-leaves its test preset behind). `--batch` also runs them through Batch ADetailer and Batch
-Hires-Fix. `test_api.py` generates five small images (not saved) and checks that characters
+leaves its test preset behind). `--batch` also runs them through Batch Hires-Fix, then Batch
+ADetailer. `test_api.py` generates five small images (not saved) and checks that characters
 sent as prompt lines and as script args, and a base64 reference, come back in the PNG info.
 
 ## License

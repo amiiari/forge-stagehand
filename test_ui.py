@@ -7,7 +7,7 @@ dropped into a card never reached the script, and pasted PNG info never refilled
 
 Needs Forge running with this extension on an Anima checkpoint, and Chrome. Run it with
 Forge's venv python (it has `websockets`). It generates three small images, saved to your
-outputs like any others. --batch also runs Batch ADetailer, then Batch Hires-Fix, on a copy
+outputs like any others. --batch also runs Batch Hires-Fix, then Batch ADetailer (batch-adetailer's order), on a copy
 in a temp folder (needs the batch-adetailer extension).
 """
 
@@ -75,10 +75,17 @@ class Page:
         raise AssertionError("generation never finished")
 
     async def gallery_image(self, out):
-        src = await self.js("(() => { const i = gradioApp().querySelector('#txt2img_gallery img'); return i ? i.src : null; })()")
+        # the finished image, not whatever the gallery showed a moment earlier (a live preview
+        # has no PNG info): the first one served with its parameters
+        for _ in range(20):
+            src = await self.js("(() => { const i = gradioApp().querySelector('#txt2img_gallery img'); return i ? i.src : null; })()")
+            if src:
+                with open(out, "wb") as f:
+                    f.write(urllib.request.urlopen(src).read())
+                if "Steps:" in Image.open(out).info.get("parameters", ""):
+                    return
+            await asyncio.sleep(0.5)
         assert src, "no image in the gallery"
-        with open(out, "wb") as f:
-            f.write(urllib.request.urlopen(src).read())
 
     async def upload(self, selector, path):
         doc = await self.call("DOM.getDocument", depth=-1, pierce=True)
@@ -215,9 +222,10 @@ def drop_test_preset():
             json.dump(presets, f, ensure_ascii=False, indent=2)
 
 
+# batch-adetailer's order: NrM.png -> Batch Hires-Fix -> NrM-hires.png -> Batch ADetailer -> NrM-hires-adetailer.png
 BATCH_TABS = {
-    "adetailer": ("Batch ADetailer", "load every base image in one folder", "-adetailer.png into each", "Run Batch ADetailer"),
-    "hires": ("Batch Hires-Fix", "load every -adetailer image in one folder", "-hires.png into each", "Run Batch Hires-Fix"),
+    "hires": ("Batch Hires-Fix", "load every base image in one folder", "-hires.png into each", "Run Batch Hires-Fix"),
+    "adetailer": ("Batch ADetailer", "load every -hires image in one folder", "-adetailer.png into each", "Run Batch ADetailer"),
 }
 
 
@@ -274,8 +282,8 @@ async def main(url, batch):
                 folder = os.path.join(tmp, "batch")
                 os.makedirs(folder)
                 shutil.copy(image, folder)
-                await run_batch(page, "adetailer", folder, "ui_check-adetailer.png")
-                await run_batch(page, "hires", folder, "ui_check-adetailer-hires.png")
+                await run_batch(page, "hires", folder, "ui_check-hires.png")
+                await run_batch(page, "adetailer", folder, "ui_check-hires-adetailer.png")
     finally:
         proc.kill()
         time.sleep(1)
