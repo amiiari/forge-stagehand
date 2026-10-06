@@ -473,6 +473,9 @@
             el(`nai_${id}_chars_manual`)?.querySelectorAll("input[type=radio]").forEach((radio) => {
                 radio.addEventListener("change", () => radio.checked && convert(id, radio.value));
             });
+            // the preset list is refreshed on blur (character_prompts.py): once now, so the first
+            // open isn't the list as it was when Forge started
+            el(`nai_${id}_chars_preset`)?.querySelector("input")?.dispatchEvent(new Event("blur"));
         }
         // Cheap and robust against everything that can change the layout (cards, toggles,
         // a new image, resizing); positions aren't re-placed while one is being dragged.

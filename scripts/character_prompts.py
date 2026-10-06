@@ -756,8 +756,11 @@ class CharacterPrompts(scripts.Script):
             # asks first; a cancel hands the backend "" and nothing is deleted
             delete_preset.click(_delete_preset, [preset], [preset], show_progress="hidden",
                                 _js="(name) => [name && confirm(`Delete the character preset \"${name}\"?`) ? name : '']")
-            # presets saved in the other tab (or another browser) show up when the list opens
-            preset.focus(lambda: gr.update(choices=_preset_choices()), None, [preset], show_progress="hidden")
+            # presets saved in the other tab (or another browser) show up the next time the list
+            # opens: refreshed as it CLOSES (and once on page load, stagehand.js). New choices make
+            # Gradio re-filter an open list by the box's text, "Empty card" -- refreshed on focus,
+            # the saved characters vanished a round-trip after the list opened.
+            preset.blur(lambda: gr.update(choices=_preset_choices()), None, [preset], show_progress="hidden")
             gr.HTML(HELP)
 
         for component in [auto, add, preset, delete_preset] + ups + downs + copies + removes + saves:

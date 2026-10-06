@@ -169,6 +169,10 @@ async def pick_preset(page, name):
     await page.js("gradioApp().querySelector('#nai_t2i_chars_preset input').click()")
     found = f"Array.from(gradioApp().querySelectorAll('#nai_t2i_chars_preset li')).find(li => li.textContent.replace('✓', '').trim() === {json.dumps(name)})"
     assert await page.wait(f"!!{found}", 10), f"{name!r} isn't in the preset list"
+    # still there a round-trip later: new choices re-filter an open list by the box's text
+    # ("Empty card"), which emptied it when the list was refreshed on focus
+    await asyncio.sleep(1.5)
+    assert await page.js(f"!!{found}"), f"{name!r} vanished from the open preset list"
     await page.js(f"{found}.dispatchEvent(new MouseEvent('mousedown', {{bubbles: true}}))")
     await asyncio.sleep(1)
 
