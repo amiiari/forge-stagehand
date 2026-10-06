@@ -72,7 +72,9 @@ def has_marks(text) -> bool:
 # button, the batch ADetailer / hires-fix tabs, an API caller -- carries the characters
 # along, and Stagehand reads them back.
 _WHOLE_INFOTEXT = re.compile(r"^(?:Negative prompt:|Steps: \d)", re.M)
-_LABEL = re.compile(r"^Character (\d+)(?: \((.*?)\))?(?: at ((?:[\d.]+ ){3}[\d.]+|[A-E][1-5]))?(?:, share (\d{1,3})%)?:[ \t]?(.*)$")
+_PLACE = r"(?:[\d.]+ ){3}[\d.]+|[A-E][1-5]"
+# a character in more than one place (multi-angle sheets): "at 0 0 0.4 1 + 0.6 0 1 1", "at B3 + D3"
+_LABEL = re.compile(rf"^Character (\d+)(?: \((.*?)\))?(?: at ((?:{_PLACE})(?: \+ (?:{_PLACE}))*))?(?:, share (\d{{1,3}})%)?:[ \t]?(.*)$")
 # A character's claim on spots where her place overlaps someone else's, in percent; the
 # overlap is split in proportion (70 vs 30 -> 70/30, 80 vs 40 -> 2/3 vs 1/3).
 SHARE = 50
@@ -116,9 +118,15 @@ def read(text: str) -> tuple[str, dict]:
 
 
 # ---------------------------------------------------------------------------- regions
-# A character's place is a box (x0, y0, x1, y1) or a point (x, y), fractions of the image.
-# A point is NovelAI's grid position: the character's center (see region_weights).
+# A character's place is a box (x0, y0, x1, y1) or a point (x, y), fractions of the image --
+# or a tuple of several (one character in more than one spot). A point is NovelAI's grid
+# position: the character's center (see region_weights).
 Box = tuple
+
+
+def shapes(place) -> list:
+    """A place's boxes / points: [place] for a single one."""
+    return list(place) if place and isinstance(place[0], (tuple, list)) else [place]
 GRID = 5  # NovelAI V4/V4.5's 5x5 position grid: columns A-E, rows 1-5
 # A point is a character's center, and the image is split between the points: every spot
 # belongs to the nearest one, with a narrow blend at the border (OWN_SIGMA). Two points side by
@@ -135,7 +143,8 @@ def auto_boxes(count: int) -> list[Box]:
 
 
 def center(shape) -> tuple:
-    """A box's or a point's center."""
+    """A box's or a point's center (a place with several: its first one's)."""
+    shape = shapes(shape)[0]
     return tuple(shape) if len(shape) == 2 else ((shape[0] + shape[2]) / 2, (shape[1] + shape[3]) / 2)
 
 
@@ -188,7 +197,10 @@ def crop_places(places: list, crop, full) -> list:
     def fy(v):
         return (v * H - y) / h
 
-    return [(fx(pl[0]), fy(pl[1])) if len(pl) == 2 else (fx(pl[0]), fy(pl[1]), fx(pl[2]), fy(pl[3])) for pl in places]
+    def move(pl):
+        return (fx(pl[0]), fy(pl[1])) if len(pl) == 2 else (fx(pl[0]), fy(pl[1]), fx(pl[2]), fy(pl[3]))
+
+    return [tuple(move(s) for s in shapes(pl)) if len(shapes(pl)) > 1 else move(pl) for pl in places]
 
 
 def region_weights(boxes: list[Box], height: int, width: int, blur: float = 1.5, own: float = OWN_SIGMA, shares=None) -> torch.Tensor:
@@ -197,22 +209,24 @@ def region_weights(boxes: list[Box], height: int, width: int, blur: float = 1.5,
     proportion to `shares` (percent per place, SHARE each by default). Shares only move the
     split between characters: a spot one character has alone, and the background's part of a
     blurred edge, are the same at any share. A box is a blurred rectangle; points split the
-    image between them, nearest point wins (see above)."""
+    image between them, nearest point wins (see above). A character with several places
+    gets all of them: the union of her boxes, the sum of her points' territories."""
     ys = (torch.arange(height) + 0.5) / height
     xs = (torch.arange(width) + 0.5) / width
-    masks = [None] * len(boxes)
-    points = [i for i, shape in enumerate(boxes) if len(shape) == 2]
+    flat = [(i, s) for i, place in enumerate(boxes) for s in shapes(place)]
+    masks = [torch.zeros(height, width) for _ in boxes]
+    points = [(i, s) for i, s in flat if len(s) == 2]
     if points:
-        d2 = torch.stack([(xs[None, :] - boxes[i][0]) ** 2 + (ys[:, None] - boxes[i][1]) ** 2 for i in points])
+        d2 = torch.stack([(xs[None, :] - s[0]) ** 2 + (ys[:, None] - s[1]) ** 2 for _, s in points])
         ownership = torch.softmax(-d2 / (2 * own**2), 0)
-        for k, i in enumerate(points):
-            masks[i] = ownership[k]
-    for i, shape in enumerate(boxes):
+        for k, (i, _) in enumerate(points):
+            masks[i] = masks[i] + ownership[k]
+    for i, shape in flat:
         if len(shape) == 2:
             continue
         x0, y0, x1, y1 = shape
         mask = ((ys[:, None] >= y0) & (ys[:, None] < y1) & (xs[None, :] >= x0) & (xs[None, :] < x1)).float()
-        masks[i] = _blur(mask, blur) if blur > 0 else mask
+        masks[i] = torch.maximum(masks[i], _blur(mask, blur) if blur > 0 else mask)
     regions = torch.stack(masks) if masks else torch.zeros(0, height, width)
     background = (1 - regions.sum(0)).clamp(min=0)
     if shares is not None and len(set(shares)) > 1:
@@ -454,7 +468,10 @@ def match_faces(faces: list, size: tuple, weights: torch.Tensor, picks: dict | N
 def placement(prompts: list[str], boxes: list[Box]) -> list[str]:
     """'a boy on the left', 'a girl on the right': where the boxes put each character, in words
     for the base prompt -- Anima keeps a layout better with it than with the regions alone.
-    Nothing when two boxes would get the same words."""
+    Nothing when two boxes would get the same words, or when a character is in more than one
+    place (one position word would be wrong about the others)."""
+    if any(len(shapes(box)) > 1 for box in boxes):
+        return []
     labels = [position_label(box, boxes) for box in boxes]
     if len(set(labels)) < len(labels):
         return []

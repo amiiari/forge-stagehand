@@ -135,8 +135,9 @@
         if (manual) manual.style.display = auto ? "none" : "";
         const where = el(`nai_${id}_chars_where`);
         if (where) where.style.display = auto ? "none" : "block";
-        // AI's Choice columns don't overlap, so the overlap share only shows for hand placing
-        el(`nai_${id}_chars`)?.querySelectorAll(".nai-share").forEach((node) => {
+        // AI's Choice columns don't overlap, and place one per character: the overlap share and
+        // ＋ (another place) only show for hand placing
+        el(`nai_${id}_chars`)?.querySelectorAll(".nai-share, .nai-add-place").forEach((node) => {
             const display = auto ? "none" : "";
             if (node.style.display !== display) node.style.display = display;
         });
@@ -156,7 +157,8 @@
     }
 
     // the PNG info's form; same pattern as characters.py's _LABEL
-    const LABEL = /^Character (\d+)(?: \((.*?)\))?(?: at ((?:[\d.]+ ){3}[\d.]+|[A-E][1-5]))?(?:, share (\d{1,3})%)?:[ \t]?(.*)$/;
+    const PLACE = "(?:[\\d.]+ ){3}[\\d.]+|[A-E][1-5]";
+    const LABEL = new RegExp(`^Character (\\d+)(?: \\((.*?)\\))?(?: at ((?:${PLACE})(?: \\+ (?:${PLACE}))*))?(?:, share (\\d{1,3})%)?:[ \\t]?(.*)$`);
 
     function readLines(text) {
         // a whole PNG info (prompt, negative, parameters) is Forge's paste button's to split
@@ -203,7 +205,7 @@
             const auto = checkbox(`nai_${id}_chars_auto`);
             if (places.length) {
                 if (auto?.checked) auto.click();
-                setManual(id, places.some((p) => cell(p)) ? "Grid" : "Boxes");
+                setManual(id, places.some((p) => cell(p.split("+")[0])) ? "Grid" : "Boxes");
             } else if (exact && auto && !auto.checked) {
                 auto.click();
             }
@@ -254,6 +256,19 @@
     // (with more characters than columns, alternating rows 2 and 4; same as characters.default_cells)
     const defaultCell = (k, count) => cellName(Math.min(Math.floor(((k + 0.5) / count) * GRID), GRID - 1), count <= GRID ? 2 : k % 2 ? 3 : 1);
 
+    // A card's position field holds one place or several (one character in more than one spot:
+    // multi-angle sheets, complex compositions), " + " between them.
+    const places = (value) => (value || "").split("+").map((v) => v.trim()).filter(Boolean);
+    const boxText = (box) => box.map((v) => v.toFixed(3)).join(" ");
+    const column = (k, count) => [k / count, 0, (k + 1) / count, 1];
+
+    // The places of the given kind ("Grid": cells, else boxes), as the backend reads them: a
+    // leftover of the other kind is ignored. Empty: the character's default place.
+    function ownPlaces(input, grid, k, count) {
+        const own = places(input?.value).filter((v) => (grid ? cell(v) : parse(v)));
+        return own.length ? own : [grid ? defaultCell(k, count) : boxText(column(k, count))];
+    }
+
     // Switching Boxes <-> Grid keeps each character where it was: a box becomes the cell its
     // center is in, a cell becomes a box around that point.
     // Every card, also those switched off or empty, so none keeps the other kind of position.
@@ -261,21 +276,56 @@
         const count = Math.max(characters(id).length, 2);
         for (let n = 1; n <= MAX; n++) {
             const input = field(`nai_${id}_char${n}_box`);
-            const value = input?.value || "";
-            if (manual === "Grid") {
-                const box = parse(value);
-                if (box) setValue(input, cellOf((box[0] + box[2]) / 2, (box[1] + box[3]) / 2));
-            } else {
+            const list = places(input?.value);
+            if (!list.length) continue;
+            const converted = list.map((value) => {
+                if (manual === "Grid") {
+                    const box = parse(value);
+                    return box ? cellOf((box[0] + box[2]) / 2, (box[1] + box[3]) / 2) : value;
+                }
                 const at = cell(value);
-                if (!at) continue;
+                if (!at) return value;
                 const x = (at[0] + 0.5) / GRID;
                 const y = (at[1] + 0.5) / GRID;
                 // centered on the point, so switching back lands on the same cell
                 const hx = Math.min(0.5 / count, x, 1 - x);
                 const hy = Math.min(0.45, y, 1 - y);
-                setValue(input, [x - hx, y - hy, x + hx, y + hy].map((v) => v.toFixed(3)).join(" "));
-            }
+                return boxText([x - hx, y - hy, x + hx, y + hy]);
+            });
+            setValue(input, converted.join(" + "));
         }
+    }
+
+    // ＋ on a card: one more place for that character, beside its last one (a box shifted by its
+    // own width, or the next free cell), dragged from there like any other.
+    function addPlace(id, n) {
+        const chars = characters(id);
+        const k = chars.findIndex((c) => c.n === n);
+        const input = field(`nai_${id}_char${n}_box`);
+        if (k < 0 || !input) return;
+        const grid = manualOf(id) === "Grid";
+        const list = ownPlaces(input, grid, k, chars.length);
+        const last = list[list.length - 1];
+        if (grid) {
+            const taken = new Set(chars.flatMap((c, j) => ownPlaces(c.input, true, j, chars.length)));
+            const [col, row] = cell(last);
+            const order = Array.from({length: GRID * GRID}, (_, i) => (row * GRID + col + 1 + i) % (GRID * GRID));
+            const free = order.map((i) => cellName(i % GRID, Math.floor(i / GRID))).find((c) => !taken.has(c));
+            list.push(free || last);
+        } else {
+            const b = parse(last);
+            const w = b[2] - b[0];
+            const x = b[2] + w <= 1 ? b[2] : Math.max(0, b[0] - w);
+            list.push(boxText([x, b[1], Math.min(x + w, 1), b[3]]));
+        }
+        setValue(input, list.join(" + "));
+    }
+
+    function removePlace(input, grid, k, count, j) {
+        const list = ownPlaces(input, grid, k, count);
+        if (list.length < 2) return;
+        list.splice(j, 1);
+        setValue(input, list.join(" + "));
     }
 
     // The canvas the positions are placed on: always the shape of the NEXT image (the current
@@ -315,11 +365,13 @@
         return {gallery, left, top, width, height};
     }
 
-    function startDrag(event, div, input, mode, overlay) {
+    // write = (text) => store the dragged place's new value (the j-th of its card's places)
+    function startDrag(event, div, write, mode, overlay) {
+        if (event.target.classList.contains("nai-pos-remove")) return;
         event.preventDefault();
         event.stopPropagation();
         dragging = true;
-        const start = mode === "dot" ? JSON.parse(div.dataset.at) : parse(input.value) || JSON.parse(div.dataset.box);
+        const start = mode === "dot" ? JSON.parse(div.dataset.at) : JSON.parse(div.dataset.box);
         const x0 = event.clientX;
         const y0 = event.clientY;
         const W = overlay.clientWidth;
@@ -348,7 +400,7 @@
             window.removeEventListener("pointerup", up);
             dragging = false;
             // a dot snaps to the cell it was dropped in
-            setValue(input, mode === "dot" ? cellOf(box[0], box[1]) : box.map((v) => v.toFixed(3)).join(" "));
+            write(mode === "dot" ? cellOf(box[0], box[1]) : boxText(box));
         };
         window.addEventListener("pointermove", move);
         window.addEventListener("pointerup", up);
@@ -393,31 +445,46 @@
         const keep = new Set();
         chars.forEach((c, k) => {
             const kind = grid ? "dot" : "box";
-            keep.add(`${kind}${c.n}`);
-            let div = overlay.querySelector(`[data-key="${kind}${c.n}"]`);
-            if (!div) {
-                div = document.createElement("div");
-                div.dataset.key = `${kind}${c.n}`;
-                if (grid) {
-                    div.className = `nai-pos-dot nai-c${c.n}`;
-                    div.innerHTML = '<span class="nai-pos-label"></span>';
-                    div.addEventListener("pointerdown", (e) => startDrag(e, div, c.input, "dot", overlay));
-                } else {
-                    div.className = `nai-pos-box nai-c${c.n}`;
-                    div.innerHTML = '<span class="nai-pos-label"></span><span class="nai-pos-handle"></span>';
-                    div.addEventListener("pointerdown", (e) => startDrag(e, div, c.input, e.target.classList.contains("nai-pos-handle") ? "resize" : "move", overlay));
+            // no saved position yet: AI's Choice columns / the middle row, as the backend does
+            const list = ownPlaces(c.input, grid, k, chars.length);
+            list.forEach((value, j) => {
+                const key = `${kind}${c.n}_${j}`;
+                keep.add(key);
+                let div = overlay.querySelector(`[data-key="${key}"]`);
+                if (!div) {
+                    div = document.createElement("div");
+                    div.dataset.key = key;
+                    // reads the field at drop time: other places of the card may have moved since
+                    const write = (text) => {
+                        const now = ownPlaces(c.input, grid, k, characters(id).length);
+                        now[j] = text;
+                        setValue(c.input, now.join(" + "));
+                    };
+                    const remove = '<span class="nai-pos-remove" title="Remove this place">×</span>';
+                    if (grid) {
+                        div.className = `nai-pos-dot nai-c${c.n}`;
+                        div.innerHTML = `<span class="nai-pos-label"></span>${j ? remove : ""}`;
+                        div.addEventListener("pointerdown", (e) => startDrag(e, div, write, "dot", overlay));
+                    } else {
+                        div.className = `nai-pos-box nai-c${c.n}`;
+                        div.innerHTML = `<span class="nai-pos-label"></span>${j ? remove : ""}<span class="nai-pos-handle"></span>`;
+                        div.addEventListener("pointerdown", (e) => startDrag(e, div, write, e.target.classList.contains("nai-pos-handle") ? "resize" : "move", overlay));
+                    }
+                    div.querySelector(".nai-pos-remove")?.addEventListener("click", (e) => {
+                        e.stopPropagation();
+                        removePlace(c.input, grid, k, characters(id).length, j);
+                    });
+                    overlay.appendChild(div);
                 }
-                overlay.appendChild(div);
-            }
-            if (grid) {
-                const at = cell(c.input?.value) || cell(defaultCell(k, chars.length));
-                setText(div.querySelector(".nai-pos-label"), `${c.label} · ${cellName(at[0], at[1])}`);
-                placeDot(div, [(at[0] + 0.5) / GRID, (at[1] + 0.5) / GRID]);
-            } else {
-                setText(div.querySelector(".nai-pos-label"), c.label);
-                // no saved position yet: AI's Choice columns, which is also what the backend uses
-                place(div, parse(c.input?.value) || [k / chars.length, 0, (k + 1) / chars.length, 1]);
-            }
+                if (grid) {
+                    const at = cell(value);
+                    setText(div.querySelector(".nai-pos-label"), `${c.label} · ${cellName(at[0], at[1])}`);
+                    placeDot(div, [(at[0] + 0.5) / GRID, (at[1] + 0.5) / GRID]);
+                } else {
+                    setText(div.querySelector(".nai-pos-label"), c.label);
+                    place(div, parse(value));
+                }
+            });
         });
         overlay.querySelectorAll("[data-key]").forEach((d) => keep.has(d.dataset.key) || d.remove());
     }
@@ -465,6 +532,7 @@
             ".nai-up": "Move this character up (earlier = further left with AI's Choice)",
             ".nai-down": "Move this character down (later = further right with AI's Choice)",
             ".nai-copy": "Duplicate this character",
+            ".nai-add-place": "Another place for this character (the same card in each): multi-angle sheets, complex compositions. × on a place removes it",
             ".nai-remove": "Delete this character",
             ".nai-remove-ref": "Remove this reference",
             [`#nai_${id}_chars_auto`]: "On: the characters stand left to right in card order. Off: place them yourself, on the output image",
@@ -484,6 +552,9 @@
             el(`nai_${id}_chars_manual`)?.querySelectorAll("input[type=radio]").forEach((radio) => {
                 radio.addEventListener("change", () => radio.checked && convert(id, radio.value));
             });
+            for (let n = 1; n <= MAX; n++) {
+                el(`nai_${id}_char${n}`)?.querySelector(".nai-add-place")?.addEventListener("click", () => addPlace(id, n));
+            }
             // the preset list is refreshed on blur (character_prompts.py): once now, so the first
             // open isn't the list as it was when Forge started
             el(`nai_${id}_chars_preset`)?.querySelector("input")?.dispatchEvent(new Event("blur"));

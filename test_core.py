@@ -149,6 +149,12 @@ def test_region_weights():
     soft = region_weights([(0.0, 0.0, 0.6, 1.0), (0.4, 0.0, 1.0, 1.0)], 6, 10, blur=1.5)
     assert torch.allclose(soft.sum(0), torch.ones(60), atol=1e-5)
     assert torch.allclose(soft[1].reshape(6, 10)[:, 5], soft[2].reshape(6, 10)[:, 4], atol=1e-5)
+    # one character in two places owns both; the gap between is the other's
+    sheet = region_weights([((0.0, 0.0, 0.3, 1.0), (0.7, 0.0, 1.0, 1.0)), (0.3, 0.0, 0.7, 1.0)], 4, 10, blur=0).reshape(3, 4, 10)
+    assert sheet[1, :, :3].eq(1).all() and sheet[1, :, 7:].eq(1).all() and sheet[2, :, 3:7].eq(1).all()
+    # Grid: two dots of one character each claim their territory against the other's dot
+    dots = region_weights([((0.1, 0.5), (0.9, 0.5)), (0.5, 0.5)], 4, 10, blur=0).reshape(3, 4, 10)
+    assert dots[1, :, 0].gt(0.99).all() and dots[1, :, 9].gt(0.99).all() and dots[2, :, 5].gt(0.99).all()
     # overlap shares: 75 vs 25 splits the overlap 3:1; each one's own part and the
     # background are untouched; equal shares are exactly the plain split
     boxes = [(0.0, 0.0, 0.6, 1.0), (0.4, 0.0, 1.0, 1.0)]
@@ -306,6 +312,8 @@ def test_crop_places():
     assert w[2].min() > 0.99, "the whole crop belongs to the right-hand character"
     assert crop_places([(0.75, 0.25)], (512, 0, 512, 384), (1024, 768)) == [(0.5, 0.5)]
     assert crop_places(columns, None, (1024, 768)) is columns  # not inpainting: unchanged
+    # a character in two places: each one moves into the crop's frame
+    assert crop_places([((0.0, 0.0, 0.5, 0.5), (0.75, 0.25))], (512, 0, 512, 384), (1024, 768)) == [((-1.0, 0.0, 0.0, 1.0), (0.5, 0.5))]
 
 
 def _character_prompts_module():
@@ -346,11 +354,11 @@ def test_prompt_lines():
     cp = _character_prompts_module()
     script = cp.CharacterPrompts()
 
-    def args(auto, cards, on=True, manual="Boxes"):
+    def args(auto, cards, on=True, manual="Boxes", shares=()):
         flat = [auto]
         for i in range(cp.MAX_CHARS):
             flat += list(cards[i]) if i < len(cards) else [True, "", "", "", ""]
-        return flat + [cp.FACES[0]] * cp.MAX_CHARS + [on, manual]
+        return flat + [cp.FACES[0]] * cp.MAX_CHARS + [on, manual] + list(shares)
 
     ren = (True, "Ren", "girl, dark blue hair, source#hug", "blonde hair", "0.000 0.000 0.500 1.000")
     kira = (True, "", "girl, black hair\nwhite tips", "", "0.500 0.000 1.000 1.000")
@@ -367,6 +375,21 @@ def test_prompt_lines():
     # Grid: the cell
     pos, _ = script.prompt_lines("2girls", "", *args(False, [(*ren[:4], "B3"), (*kira[:4], "D3")], manual="Grid"))
     assert [c["box"] for c in read(pos)[1].values()] == ["B3", "D3"], pos
+    # one character in two places, and overlap shares: both travel in the lines
+    two = "0.000 0.000 0.400 1.000 + 0.600 0.000 1.000 1.000"
+    pos, _ = script.prompt_lines("1girl", "", *args(False, [(*ren[:4], two), kira], shares=[70, 30]))
+    got = read(pos)[1]
+    assert got[1]["box"] == two and got[1]["share"] == 70 and got[2]["share"] == 30, pos
+    pos, _ = script.prompt_lines("1girl", "", *args(False, [(*ren[:4], "B3 + D3")], manual="Grid"))
+    assert read(pos)[1][1]["box"] == "B3 + D3", pos
+    # the place parser: several places, invalid parts dropped, one place stays a plain shape
+    assert cp._parse_place(two) == ((0.0, 0.0, 0.4, 1.0), (0.6, 0.0, 1.0, 1.0))
+    assert cp._parse_place("C3 + nonsense") == cp._parse_place("C3") == (0.5, 0.5)
+    assert cp._format_place(cp._parse_place("B3 + D3")) == "B3 + D3"
+    # a leftover of the other kind (Boxes <-> Grid) is ignored, as the editor ignores it
+    mixed = [(1, "", "girl", "", cp._parse_place("B3 + 0.1 0.1 0.5 0.5"), None, 50)]
+    assert cp._places(mixed, False, "Boxes") == {1: (0.1, 0.1, 0.5, 0.5)}
+    assert cp._places(mixed, False, "Grid") == {1: (0.3, 0.5)}
     # Character Prompts switched off, or no card with text: untouched
     assert script.prompt_lines("x", "y", *args(True, [ren], on=False)) == ("x", "y")
     assert script.prompt_lines("x", "y", *args(True, [])) == ("x", "y")
@@ -493,6 +516,8 @@ def test_placement():
     assert placement(["girl", "other thing"], [(0, 0, 1, 0.4), (0, 0.6, 1, 1)]) == ["a girl at the top", "a character at the bottom"]
     # boxes too alike to tell apart in words: say nothing
     assert placement(["girl", "boy"], [(0, 0, 1, 1), (0, 0, 1, 1)]) == []
+    # a character in two places: one position word would be wrong about the other
+    assert placement(["girl", "boy"], [((0, 0, 0.3, 1), (0.7, 0, 1, 1)), (0.3, 0, 0.7, 1)]) == []
     # one girl on the left, a pair stacked on the right (one carrying the other)
     stacked = [(0, 0.15, 0.45, 1), (0.45, 0.25, 1, 1), (0.5, 0, 1, 0.55)]
     assert placement(["girl, a", "girl, b", "girl, c"], stacked) == ["a girl on the left", "a girl at the bottom right", "a girl at the top right"]

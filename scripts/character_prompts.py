@@ -44,6 +44,7 @@ from lib_stagehand.characters import (
     parse_cell,
     placement,
     read,
+    shapes,
     real_length,
     region_weights,
     show,
@@ -113,12 +114,20 @@ def _format_box(box):
 
 
 def _parse_place(text):
-    """A card's position: a grid cell ('C3') as a point, or a box, or None."""
-    return parse_cell(text) or _parse_box(text)
+    """A card's position: a grid cell ('C3') as a point, or a box -- or several, " + " between
+    them, as a tuple of those -- or None."""
+    found = [s for s in (parse_cell(part) or _parse_box(part) for part in str(text or "").split("+")) if s]
+    return None if not found else found[0] if len(found) == 1 else tuple(found)
 
 
-def _format_place(shape):
-    return format_cell(shape) if len(shape) == 2 else _format_box(shape)
+def _format_place(place):
+    return " + ".join(format_cell(s) if len(s) == 2 else _format_box(s) for s in shapes(place))
+
+
+def _of_kind(place, size):
+    """The place's shapes of one kind (2: grid points, 4: boxes), as a place, or None."""
+    own = [s for s in shapes(place) if s and len(s) == size] if place else []
+    return None if not own else own[0] if len(own) == 1 else tuple(own)
 
 
 def _characters(args):
@@ -167,9 +176,9 @@ def _places(characters, auto, manual):
     # off while Boxes <-> Grid was switched) gets the default, as the editor draws it.
     if manual == "Grid":
         cells = dict(zip(numbers, default_cells(len(numbers))))
-        return {c[0]: c[4] if c[4] and len(c[4]) == 2 else parse_cell(cells[c[0]]) for c in characters}
+        return {c[0]: _of_kind(c[4], 2) or parse_cell(cells[c[0]]) for c in characters}
     columns = dict(zip(numbers, auto_boxes(len(numbers))))
-    return {c[0]: c[4] if c[4] and len(c[4]) == 4 else columns[c[0]] for c in characters}
+    return {c[0]: _of_kind(c[4], 4) or columns[c[0]] for c in characters}
 
 
 def _in_crop(p, places):
@@ -733,6 +742,9 @@ class CharacterPrompts(scripts.Script):
                         down = gr.Button("↓", elem_classes=["nai-icon", "nai-down"], min_width=30, scale=0)
                         save = gr.Button("💾", elem_classes=["nai-icon", "nai-save-preset"], min_width=30, scale=0)
                         copy = gr.Button("⧉", elem_classes=["nai-icon", "nai-copy"], min_width=30, scale=0)
+                        # another place for this character: stagehand.js adds it to the position field
+                        add_place = gr.Button("＋", elem_classes=["nai-icon", "nai-add-place"], min_width=30, scale=0)
+                        add_place.do_not_save_to_config = True
                         remove = gr.Button("🗑", elem_classes=["nai-icon", "nai-remove"], min_width=30, scale=0)
                     with gr.Tabs(elem_classes=["nai-char-tabs"]):
                         with gr.Tab("Prompt"):
@@ -857,7 +869,7 @@ class CharacterPrompts(scripts.Script):
                            picks.get(n), c["share"]) for n, c in sorted(shown_chars.items())]
             places = [_parse_place(c["box"]) for c in shown_chars.values()]
             auto = not any(places)
-            manual = "Grid" if any(pl and len(pl) == 2 for pl in places) else "Boxes"
+            manual = "Grid" if any(pl and len(shapes(pl)[0]) == 2 for pl in places) else "Boxes"
         elif has_marks(p.prompt):
             # Already merged (a restored template the panel hasn't split yet, or an API
             # caller): the marks are the characters; boxes only add names and positions.

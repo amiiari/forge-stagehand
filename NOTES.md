@@ -141,6 +141,15 @@ the one-prompt image.
   draw a character anywhere, even inside the other's box, and then its own prompt doesn't
   reach it. Bigger figures (cowboy shot, upper body) stay in their boxes.
 
+### Several places per character
+
+A card's position field holds `place + place + ...`. Boxes: the character's mask is the union
+(max) of her blurred boxes. Grid: each dot takes part in the nearest-dot softmax on its own,
+and a character's mask is the sum of her dots' territories, so two dots of one character
+split the image with the others' dots exactly as separate characters would. ADetailer then
+gives every face inside any of her places her card (see "ADetailer per face"). Position words
+are dropped when any character has more than one place. Not A/B tested yet on a sheet.
+
 ### Overlap share
 
 Where places overlap, each spot used to be split evenly. Each card now has a share (percent,

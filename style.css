@@ -444,6 +444,30 @@
     cursor: nwse-resize;
 }
 
+/* x on a character's extra place (+ on the card adds one): removes just that place */
+.nai-positions .nai-pos-remove {
+    position: absolute;
+    right: 0;
+    top: 0;
+    width: 18px;
+    height: 18px;
+    line-height: 16px;
+    text-align: center;
+    border-radius: 0 4px 0 6px;
+    background: var(--nai-char);
+    color: #fff;
+    font-weight: 700;
+    text-shadow: 0 0 3px #000;
+    pointer-events: auto;
+    cursor: pointer;
+}
+
+.nai-positions .nai-pos-dot .nai-pos-remove {
+    right: -20px;
+    top: -26px;
+    border-radius: 50%;
+}
+
 /* "Stagehand": one fold-out holding both panels, saying what's active while it's closed */
 .nai-stagehand {
     margin-top: 6px;
