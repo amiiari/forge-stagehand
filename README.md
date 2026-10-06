@@ -213,6 +213,74 @@ It needs the base Anima (28 blocks); other sizes are skipped with a console mess
 
 ---
 
+## API
+
+Everything works through Forge's own API (start Forge with `--api`), on `/sdapi/v1/txt2img`
+and `/sdapi/v1/img2img`. [`example_api.py`](example_api.py) is a complete, runnable example:
+two characters placed by hand, one of them with a reference image.
+
+### Characters: lines in the prompt (simplest)
+
+Send the characters the way an image's PNG info has them: lines after the main prompt.
+
+```
+masterpiece, 2girls, lap pillow, on couch
+
+Character 1 (Rin) at 0.000 0.450 0.650 1.000, share 80%: girl, long red hair, lying, head on lap
+Character 2 (Aoi) at 0.350 0.000 1.000 1.000, share 20%: girl, short blue hair, sitting
+```
+
+- `Character N` numbers 1–6. `(Name)` is optional; it only labels the character.
+- `at …` places the character, as fractions of the image (`x0 y0 x1 y1`) or a grid cell
+  (`C3`). Several places for one character: `at B3 + D3`. Leave `at` out on every line for
+  AI's Choice (columns, in number order).
+- `, share N%` is the overlap share (50 if left out).
+- A character's text may go on over several lines; the next `Character` line ends it.
+- Undesired Content: the same lines after the main negative prompt, in `negative_prompt`
+  (`Character 2: glasses`).
+- Interaction tags, wildcards and LoRA tags work as in the UI.
+
+### Characters: script args
+
+Or send the cards as Character Prompts' args, as the UI does:
+
+```jsonc
+"alwayson_scripts": {"Character Prompts": {"args": [
+    false,                                         // AI's Choice
+    true, "Rin", "girl, red hair", "", "0 0 0.6 1",  // card 1: on, name, prompt, Undesired Content, position
+    true, "", "girl, blue hair", "glasses", "0.4 0 1 1",
+    true, "", "", "", "",  true, "", "", "", "",   // cards 3-6 (empty)
+    true, "", "", "", "",  true, "", "", "", "",
+    "Face: auto", "Face: auto", "Face: auto", "Face: auto", "Face: auto", "Face: auto",
+    true, "Boxes",                                 // Character Prompts on, placement: "Boxes" or "Grid"
+    70, 30, 50, 50, 50, 50                         // overlap shares (may be left out: 50 each)
+]}}
+```
+
+A prompt that already has `Character N:` lines uses those and ignores the cards.
+
+### Precise Reference
+
+```jsonc
+"alwayson_scripts": {"Precise Reference": {"args": [
+    "<base64 PNG>", "Character", 1.0, 1.0,         // card 1: image, type, strength, fidelity
+    "", "Character", 1.0, 1.0,                     // cards 2-4: "" = no image
+    "", "Character", 1.0, 1.0,
+    "", "Character", 1.0, 1.0,
+    false, true                                    // also in ADetailer, on
+]}}
+```
+
+The image is base64 (a `data:` URL works too) or a file path on the machine Forge runs on.
+Type is `Character`, `Style` or `Character & Style`; strength −1 to 2; fidelity 0 to 1. The
+image's PNG info reports what was applied (`PR 1 strength: …`).
+
+### Per request
+
+`override_settings` takes Stagehand's settings: `stagehand_cp_one_pass` (true/false) and
+`stagehand_cp_region_strength` (0–1). ADetailer's per-character faces work over the API too,
+whenever its prompt is `[PROMPT]` or empty.
+
 ## Tests
 
 With Forge's venv python, from the extension folder:
@@ -220,12 +288,14 @@ With Forge's venv python, from the extension folder:
 ```
 python test_core.py            # the logic, no Forge needed
 python test_ui.py [--batch]    # the real UI in headless Chrome; Forge must be running
+python test_api.py             # the API: Forge must be running with --api
 ```
 
 `test_ui.py` generates three small images: characters from the cards, pasting them back, and
 a reference from a card. It also saves, re-adds and deletes a character preset (and never
 leaves its test preset behind). `--batch` also runs them through Batch ADetailer and Batch
-Hires-Fix.
+Hires-Fix. `test_api.py` generates five small images (not saved) and checks that characters
+sent as prompt lines and as script args, and a base64 reference, come back in the PNG info.
 
 ## License
 
