@@ -30,6 +30,7 @@ from modules.processing_scripts.comments import strip_comments
 
 from lib_stagehand import anima_hooks
 from lib_stagehand.characters import (
+    SHARE,
     crop_places,
     RegionSession,
     auto_boxes,
@@ -53,8 +54,8 @@ from lib_stagehand.characters import (
 anima_hooks.install()
 
 MAX_CHARS = 6  # NovelAI V4.5's limit; regional prompting gets unreliable well before V5's 22
-CARD_FIELDS = 6  # enabled, name, prompt, uc, box, face -- a card's components in the UI
-ARG_FIELDS = 5  # the args carry each card's first five, then every card's face at the end
+CARD_FIELDS = 7  # enabled, name, prompt, uc, box, face, share -- a card's components in the UI
+ARG_FIELDS = 5  # the args carry each card's first five, then every card's face, then every share
 PROMPT = 2  # index of the prompt within a card's fields
 FACE = 5  # ...and of its ADetailer face pick
 NTH = ("1st", "2nd", "3rd", "4th", "5th", "6th")
@@ -121,16 +122,30 @@ def _format_place(shape):
 
 
 def _characters(args):
-    """[(number, name, prompt, uc, box, face)] for every enabled card with something to say --
-    a box that is only a comment would otherwise still take an AI's Choice column. face is
-    the hand-picked ADetailer detection (0 = 1st from the left), or None."""
+    """[(number, name, prompt, uc, box, face, share)] for every enabled card with something to
+    say -- a box that is only a comment would otherwise still take an AI's Choice column. face
+    is the hand-picked ADetailer detection (0 = 1st from the left), or None; share the card's
+    claim on overlaps, in percent."""
     out = []
     faces = list(args[1 + MAX_CHARS * ARG_FIELDS :]) + [FACES[0]] * MAX_CHARS
+    shares = _shares(args)
     for i in range(MAX_CHARS):
         enabled, name, prompt, uc, box = args[1 + i * ARG_FIELDS : 1 + (i + 1) * ARG_FIELDS]
         if enabled and strip_comments(prompt or "").strip():
             face = FACES.index(faces[i]) - 1 if faces[i] in FACES[1:] else None
-            out.append((i + 1, (name or "").strip(), prompt, uc or "", _parse_place(box), face))
+            out.append((i + 1, (name or "").strip(), prompt, uc or "", _parse_place(box), face, shares[i]))
+    return out
+
+
+def _shares(args):
+    """Every card's overlap share, after (on, manual) -- SHARE for callers that send none."""
+    rest = list(args[1 + MAX_CHARS * ARG_FIELDS + MAX_CHARS + 2 :])[:MAX_CHARS]
+    out = []
+    for v in rest + [SHARE] * (MAX_CHARS - len(rest)):
+        try:
+            out.append(min(max(int(round(float(v))), 0), 100))
+        except (TypeError, ValueError):
+            out.append(SHARE)
     return out
 
 
@@ -246,8 +261,8 @@ def _taken(shown, values, i):
     return shown[i] or bool((values[i * CARD_FIELDS + PROMPT] or "").strip())
 
 
-def _card_values(enabled=True, name="", prompt="", uc="", box="", face=FACES[0]):
-    return [enabled, name, prompt, uc, box, face]
+def _card_values(enabled=True, name="", prompt="", uc="", box="", face=FACES[0], share=SHARE):
+    return [enabled, name, prompt, uc, box, face, share]
 
 
 def _no_change(extra=0):
@@ -415,6 +430,7 @@ def _clear_on_paste(infotext, params):
         params["Prompt"] = base
         for n, c in chars.items():
             params[f"Char {n} prompt"], params[f"Char {n} name"], params[f"Char {n} position"] = c["text"], c["name"], c["box"]
+            params[f"Char {n} share"] = c["share"]
     negative, ucs = read(params.get("Negative prompt", ""))
     if ucs:
         params["Negative prompt"] = negative
@@ -436,6 +452,7 @@ def _clear_on_paste(infotext, params):
         for key in (f"Char {n} prompt", f"Char {n} UC", f"Char {n} name", f"Char {n} position"):
             params.setdefault(key, "")
         params.setdefault(f"Char {n} ADetailer face", FACES[0])
+        params.setdefault(f"Char {n} share", SHARE)
 
 
 script_callbacks.on_infotext_pasted(_clear_on_paste)
@@ -486,7 +503,9 @@ def _with_characters(text, a):
     prompts = image.get("prompt_raw") or image["prompt"]  # with Save Raw Comments, the comments too
     ucs = image.get("uc_raw") or image["uc"]
     names = info.get("names", {})
-    positive = show(prompt, [(n, names.get(n, ""), None if info["auto"] else _format_place(info["boxes"][n]), prompts.get(n, "")) for n in info["numbers"]])
+    shares = info.get("shares", {})
+    positive = show(prompt, [(n, names.get(n, ""), None if info["auto"] else _format_place(info["boxes"][n]), prompts.get(n, ""), shares.get(n))
+                             for n in info["numbers"]])
     negative = show(negative or "", [(n, "", None, ucs.get(n, "")) for n in info["numbers"]])
     params = text[len(body):].lstrip(chr(10))  # with an empty prompt and negative, strip() ate the newline
     return f"{positive}{chr(10) + 'Negative prompt: ' + negative if negative else ''}{chr(10)}{params}".strip()
@@ -550,7 +569,8 @@ def _face_pass(script, p, args, masks):
     width, height = masks[0].size
     # the regions exactly as sampling had them: Anima's token grid (8x VAE, 2x2 patches)
     h, w = -(-(height // 8) // 2), -(-(width // 8) // 2)
-    weights = region_weights([info["boxes"][n] for n in numbers], h, w)[1:].reshape(len(numbers), h, w)
+    weights = region_weights([info["boxes"][n] for n in numbers], h, w, shares=[info.get("shares", {}).get(n, SHARE) for n in numbers])
+    weights = weights[1:].reshape(len(numbers), h, w)
     found = [(j, m.getbbox()) for j, m in enumerate(masks)]
     found = [(j, box) for j, box in found if box]
     # hands and eyes come several per character (or one, an eye covered): each goes to the
@@ -721,6 +741,8 @@ class CharacterPrompts(scripts.Script):
                             uc = gr.Textbox(value="", show_label=False, lines=2, elem_id=f"nai_{tab}_char{i + 1}_uc")
                     # Rendered but hidden by CSS: the position overlay writes here.
                     box = gr.Textbox(value="", elem_id=f"nai_{tab}_char{i + 1}_box", elem_classes=["nai-hidden"], show_label=False, container=False)
+                    # only matters where places overlap, so stagehand.js shows it with AI's Choice off
+                    share = gr.Slider(0, 100, value=SHARE, step=5, label="Overlap share %", elem_id=f"nai_{tab}_char{i + 1}_share", elem_classes=["nai-share"])
                 cards.append(card)
                 ups.append(up)
                 downs.append(down)
@@ -728,7 +750,7 @@ class CharacterPrompts(scripts.Script):
                 removes.append(remove)
                 # value="" matters: Forge's paste converts with type(component.value), and a
                 # Textbox without one is None -- every pasted character was silently dropped
-                card_fields = [enabled, name, prompt, uc, box, face]
+                card_fields = [enabled, name, prompt, uc, box, face, share]
                 for component in card_fields:
                     # ui-config.json keys come from a component's LABEL; every card would share one
                     component.do_not_save_to_config = True
@@ -739,6 +761,7 @@ class CharacterPrompts(scripts.Script):
                     (uc, f"Char {i + 1} UC"),
                     (box, f"Char {i + 1} position"),
                     (face, f"Char {i + 1} ADetailer face"),
+                    (share, f"Char {i + 1} share"),
                     # a pasted character is switched on, or it would be pasted and never drawn
                     # string keys, so Send to img2img carries on/off too (_clear_on_paste fills them)
                     (enabled, f"Char {i + 1} on"),
@@ -775,9 +798,10 @@ class CharacterPrompts(scripts.Script):
         self.infotext_fields = infotext
         self.paste_field_names = [key for _, key in infotext if isinstance(key, str)]
         # Added fields go last, so API callers written for the older layouts keep working:
-        # [AI's Choice] + 6 x [on, name, prompt, uc, position] + 6 faces + [on/off, placement]
+        # [AI's Choice] + 6 x [on, name, prompt, uc, position] + 6 faces + [on/off, placement] + 6 shares
         per_card = [fields[i * CARD_FIELDS : (i + 1) * CARD_FIELDS] for i in range(MAX_CHARS)]
-        return [auto] + [c for card in per_card for c in card[:ARG_FIELDS]] + [card[ARG_FIELDS] for card in per_card] + [on, manual]
+        return ([auto] + [c for card in per_card for c in card[:ARG_FIELDS]] + [card[FACE] for card in per_card] + [on, manual]
+                + [card[FACE + 1] for card in per_card])
 
     # ------------------------------------------------------------------ processing
     def args_from_infotext(self, params):
@@ -802,9 +826,9 @@ class CharacterPrompts(scripts.Script):
             return prompt, negative
         auto = bool(args[0])
         places = None if auto else _places(characters, auto, manual)
-        positive = show(prompt, [(n, name, None if auto else _format_place(places[n]), text)
-                                 for n, name, text, _uc, _box, _face in characters])
-        negative = show(negative, [(n, "", None, uc) for n, _name, _text, uc, _box, _face in characters])
+        positive = show(prompt, [(n, name, None if auto else _format_place(places[n]), text, share)
+                                 for n, name, text, _uc, _box, _face, share in characters])
+        negative = show(negative, [(n, "", None, uc) for n, _name, _text, uc, _box, _face, _share in characters])
         return positive, negative
 
     def before_process(self, p, *args):
@@ -830,7 +854,7 @@ class CharacterPrompts(scripts.Script):
             known = {c[0]: c for c in characters}
             picks = _face_picks(args)
             characters = [(n, c["name"] or known.get(n, (n, ""))[1], c["text"], "", _parse_place(c["box"]),
-                           picks.get(n)) for n, c in sorted(shown_chars.items())]
+                           picks.get(n), c["share"]) for n, c in sorted(shown_chars.items())]
             places = [_parse_place(c["box"]) for c in shown_chars.values()]
             auto = not any(places)
             manual = "Grid" if any(pl and len(pl) == 2 for pl in places) else "Boxes"
@@ -839,7 +863,7 @@ class CharacterPrompts(scripts.Script):
             # caller): the marks are the characters; boxes only add names and positions.
             marked = sorted(set(split(p.prompt)[1]) | set(split(p.negative_prompt)[1]))
             known = {c[0]: c for c in characters}
-            characters = [known.get(n, (n, "", "", "", None, None)) for n in marked]
+            characters = [known.get(n, (n, "", "", "", None, None, SHARE)) for n in marked]
             if not has_marks(p.negative_prompt):  # the cards' Undesired Content, from the cards
                 p.negative_prompt = merge(p.negative_prompt, {c[0]: c[3] for c in characters if c[3]})
         elif characters:
@@ -856,8 +880,9 @@ class CharacterPrompts(scripts.Script):
 
         names = {c[0]: c[1] for c in characters if c[1]}
         # the prompts, names and positions go into the PNG info's prompt section (_with_characters)
-        p._nai_chars = {"numbers": numbers, "boxes": boxes, "auto": auto, "manual": manual, "faces": faces, "names": names, "steps": p.steps, "images": {}}
-        for n, _, _, _, _, face in characters:
+        p._nai_chars = {"numbers": numbers, "boxes": boxes, "auto": auto, "manual": manual, "faces": faces, "names": names,
+                        "shares": {c[0]: c[6] for c in characters}, "steps": p.steps, "images": {}}
+        for n, _, _, _, _, face, _ in characters:
             if face is not None:
                 p.extra_generation_params[f"Char {n} ADetailer face"] = FACES[face + 1]
 
@@ -965,6 +990,7 @@ class CharacterPrompts(scripts.Script):
             patch=getattr(diffusion_model, "patch_spatial", 2),
             whole=bool(x.get("whole")),
             strength=x.get("strength", 1.0),
+            shares=[info.get("shares", {}).get(n, SHARE) for n in info["numbers"]],
         )
         unet = unet.clone()
         unet.set_transformer_option(anima_hooks.REGIONS_KEY, session)

@@ -65,28 +65,35 @@ def has_marks(text) -> bool:
 #     masterpiece, 2girls, cafe
 #
 #     Character 1 (Ava): girl, black hair, ...
-#     Character 2 (Mei) at 0.500 0.000 1.000 0.500: girl, orange hair, ...
+#     Character 2 (Mei) at 0.500 0.000 1.000 0.500, share 70%: girl, orange hair, ...
 #
-# Readable, and complete: the position is there whenever it isn't AI's Choice. Whatever
-# copies the prompt somewhere -- the paste button, the batch ADetailer / hires-fix tabs, an
-# API caller -- carries the characters along, and Stagehand reads them back.
+# Readable, and complete: the position is there whenever it isn't AI's Choice, the overlap
+# share whenever it isn't the default. Whatever copies the prompt somewhere -- the paste
+# button, the batch ADetailer / hires-fix tabs, an API caller -- carries the characters
+# along, and Stagehand reads them back.
 _WHOLE_INFOTEXT = re.compile(r"^(?:Negative prompt:|Steps: \d)", re.M)
-_LABEL = re.compile(r"^Character (\d+)(?: \((.*?)\))?(?: at ((?:[\d.]+ ){3}[\d.]+|[A-E][1-5]))?:[ \t]?(.*)$")
+_LABEL = re.compile(r"^Character (\d+)(?: \((.*?)\))?(?: at ((?:[\d.]+ ){3}[\d.]+|[A-E][1-5]))?(?:, share (\d{1,3})%)?:[ \t]?(.*)$")
+# A character's claim on spots where her place overlaps someone else's, in percent; the
+# overlap is split in proportion (70 vs 30 -> 70/30, 80 vs 40 -> 2/3 vs 1/3).
+SHARE = 50
 
 
 def show(base: str, chars: list) -> str:
     """The main prompt, then a line per character: chars = [(number, name, box text or
-    None, text)], empty texts left out."""
-    lines = [f"Character {n}{f' ({name})' if name else ''}{f' at {box}' if box else ''}: {text.strip()}"
-             for n, name, box, text in chars if text and text.strip()]
+    None, text[, share])], empty texts left out; the share only when it isn't SHARE."""
+    def share(rest):
+        return f", share {int(rest[0])}%" if rest and rest[0] is not None and int(rest[0]) != SHARE else ""
+
+    lines = [f"Character {n}{f' ({name})' if name else ''}{f' at {box}' if box else ''}{share(rest)}: {text.strip()}"
+             for n, name, box, text, *rest in chars if text and text.strip()]
     if not lines:
         return base
     return "\n\n".join(part for part in (base.rstrip(), "\n".join(lines)) if part)
 
 
 def read(text: str) -> tuple[str, dict]:
-    """Inverse of show: (main prompt, {number: {"name", "box", "text"}}). A line after a
-    character's that isn't another character continues it."""
+    """Inverse of show: (main prompt, {number: {"name", "box", "share", "text"}}). A line after
+    a character's that isn't another character continues it."""
     if not isinstance(text, str) or "Character " not in text:
         return text, {}
     if _WHOLE_INFOTEXT.search(text):
@@ -97,7 +104,8 @@ def read(text: str) -> tuple[str, dict]:
         m = _LABEL.match(line)
         if m:
             first = i if first is None else first
-            current = chars[int(m.group(1))] = {"name": m.group(2) or "", "box": m.group(3) or "", "text": m.group(4)}
+            current = chars[int(m.group(1))] = {"name": m.group(2) or "", "box": m.group(3) or "",
+                                                "share": min(int(m.group(4)), 100) if m.group(4) else SHARE, "text": m.group(5)}
         elif current is not None:
             current["text"] += "\n" + line
     if first is None:
@@ -183,10 +191,13 @@ def crop_places(places: list, crop, full) -> list:
     return [(fx(pl[0]), fy(pl[1])) if len(pl) == 2 else (fx(pl[0]), fy(pl[1]), fx(pl[2]), fy(pl[3])) for pl in places]
 
 
-def region_weights(boxes: list[Box], height: int, width: int, blur: float = 1.5, own: float = OWN_SIGMA) -> torch.Tensor:
+def region_weights(boxes: list[Box], height: int, width: int, blur: float = 1.5, own: float = OWN_SIGMA, shares=None) -> torch.Tensor:
     """[1 + len(boxes), height * width] blend weights; row 0 is the background (the base
-    prompt alone). Every token's weights sum to 1, so overlapping places share it. A box is a
-    blurred rectangle; points split the image between them, nearest point wins (see above)."""
+    prompt alone). Every token's weights sum to 1, so overlapping places share it -- in
+    proportion to `shares` (percent per place, SHARE each by default). Shares only move the
+    split between characters: a spot one character has alone, and the background's part of a
+    blurred edge, are the same at any share. A box is a blurred rectangle; points split the
+    image between them, nearest point wins (see above)."""
     ys = (torch.arange(height) + 0.5) / height
     xs = (torch.arange(width) + 0.5) / width
     masks = [None] * len(boxes)
@@ -204,6 +215,10 @@ def region_weights(boxes: list[Box], height: int, width: int, blur: float = 1.5,
         masks[i] = _blur(mask, blur) if blur > 0 else mask
     regions = torch.stack(masks) if masks else torch.zeros(0, height, width)
     background = (1 - regions.sum(0)).clamp(min=0)
+    if shares is not None and len(set(shares)) > 1:
+        # a 0% character yields every overlap, but keeps a sliver so all-zero spots still split
+        scaled = regions * torch.tensor([max(float(s), 0.1) for s in shares])[:, None, None]
+        regions = scaled * (regions.sum(0) / scaled.sum(0).clamp(min=1e-9))
     weights = torch.cat([background[None], regions])
     weights = weights / weights.sum(0, keepdim=True).clamp(min=1e-6)
     return weights.reshape(len(weights), height * width)
@@ -280,8 +295,9 @@ class RegionSession:
     region's attention replaces the base's (1 = all the way).
     """
 
-    def __init__(self, boxes, images, step, patch=2, blur=1.5, whole=False, strength=1.0):
+    def __init__(self, boxes, images, step, patch=2, blur=1.5, whole=False, strength=1.0, shares=None):
         self.boxes = list(boxes)
+        self.shares = shares
         self.images = images
         self.step = step
         self.patch = patch
@@ -310,7 +326,7 @@ class RegionSession:
         total = length // plane
         key = (self.grid, total, device, dtype)
         if key not in self._weights:
-            w = region_weights(self.boxes, height, width, self.blur)[:, None, :].expand(-1, frames, -1)
+            w = region_weights(self.boxes, height, width, self.blur, shares=self.shares)[:, None, :].expand(-1, frames, -1)
             if total > frames:
                 # Forge's "[Anima] Enable Reference" appends reference frames on T after the
                 # image's own; they get the base prompt alone

@@ -12,6 +12,7 @@
     const TABS = [["txt2img", "t2i"], ["img2img", "i2i"]];
     const MAX = 6;
     const GRID = 5;
+    const SHARE = 50; // a card's default overlap share (characters.SHARE)
     const FEATURES = [["chars", "Character Prompts"], ["pr", "Precise Reference"]];
     let dragging = false;
 
@@ -55,7 +56,10 @@
             const prompt = field(`nai_${id}_char${n}_prompt`);
             if ((on && !on.checked) || !prompt || !stripComments(prompt.value).trim()) continue;
             const name = card.querySelector(".nai-char-name input, .nai-char-name textarea")?.value.trim();
-            out.push({n, label: name || `${n}`, input: field(`nai_${id}_char${n}_box`)});
+            const share = Number(field(`nai_${id}_char${n}_share`)?.value ?? SHARE);
+            // the box's tag says the share when it isn't the default: overlaps follow it
+            const label = (name || `${n}`) + (share !== SHARE ? ` · ${share}%` : "");
+            out.push({n, label, input: field(`nai_${id}_char${n}_box`)});
         }
         return out;
     }
@@ -131,6 +135,11 @@
         if (manual) manual.style.display = auto ? "none" : "";
         const where = el(`nai_${id}_chars_where`);
         if (where) where.style.display = auto ? "none" : "block";
+        // AI's Choice columns don't overlap, so the overlap share only shows for hand placing
+        el(`nai_${id}_chars`)?.querySelectorAll(".nai-share").forEach((node) => {
+            const display = auto ? "none" : "";
+            if (node.style.display !== display) node.style.display = display;
+        });
     }
 
     // ------------------------------------------------------------------ prompts with characters in them
@@ -147,7 +156,7 @@
     }
 
     // the PNG info's form; same pattern as characters.py's _LABEL
-    const LABEL = /^Character (\d+)(?: \((.*?)\))?(?: at ((?:[\d.]+ ){3}[\d.]+|[A-E][1-5]))?:[ \t]?(.*)$/;
+    const LABEL = /^Character (\d+)(?: \((.*?)\))?(?: at ((?:[\d.]+ ){3}[\d.]+|[A-E][1-5]))?(?:, share (\d{1,3})%)?:[ \t]?(.*)$/;
 
     function readLines(text) {
         // a whole PNG info (prompt, negative, parameters) is Forge's paste button's to split
@@ -160,7 +169,7 @@
             const m = line.match(LABEL);
             if (m) {
                 if (first < 0) first = i;
-                current = chars[m[1]] = {name: m[2] || "", box: m[3] || "", text: m[4]};
+                current = chars[m[1]] = {name: m[2] || "", box: m[3] || "", share: m[4] || "", text: m[5]};
             } else if (current) {
                 current.text += "\n" + line;
             }
@@ -178,12 +187,14 @@
             if (n in parsed.chars) continue;
             setValue(field(`nai_${id}_char${n}_${kind}`), "");
             if (kind === "prompt") setValue(field(`nai_${id}_char${n}_box`), "");
+            if (kind === "prompt") setValue(field(`nai_${id}_char${n}_share`), String(SHARE));
         }
         for (const [n, c] of Object.entries(parsed.chars)) {
             setValue(field(`nai_${id}_char${n}_${kind}`), c.text);
             if (kind !== "prompt") continue;
             if (c.name) setValue(el(`nai_${id}_char${n}`)?.querySelector(".nai-char-name input, .nai-char-name textarea"), c.name);
             if (c.box || exact) setValue(field(`nai_${id}_char${n}_box`), c.box);
+            if (c.share || exact) setValue(field(`nai_${id}_char${n}_share`), c.share || String(SHARE));
             const cardOn = el(`nai_${id}_char${n}`)?.querySelector(".nai-char-on input");
             if (exact && cardOn && !cardOn.checked) cardOn.click();
         }

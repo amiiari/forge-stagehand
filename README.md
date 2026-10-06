@@ -82,7 +82,7 @@ extension keeps them.
 - **Turn it off** to place the characters yourself, in one of two ways (the switch next to
   AI's Choice; switching keeps each character where it was):
   - **Boxes**: drag a box by its name tab to move it, by its corner dot to resize. Boxes may
-    overlap; the overlap is shared.
+    overlap; the overlap is shared, by each card's **Overlap share %**.
   - **Grid**: NovelAI's 5×5 grid. Each character is a dot that snaps to a cell. Every part of
     the image belongs to the nearest dot, so stacked or diagonal dots give layouts columns
     can't (bunk beds, someone in the foreground).
@@ -90,6 +90,11 @@ extension keeps them.
     - Give each character its own cell; two on one cell merge.
     - A lone character's dot only changes the position words ("a girl on the left"). Use
       Boxes to confine one.
+- **Overlap share %** (on each card, with AI's Choice off): who wins where two places overlap.
+  Every card starts at 50; the overlap is split in proportion, so 70 vs 30 gives 70/30 and
+  80 vs 40 gives 2/3 vs 1/3. One character lying on another's lap: raise hers, lower the
+  other's. A part of the image only one character has is the same at any share. The box or
+  dot shows the share when it isn't 50.
 - Positions are fractions of the image, so they survive any resolution, hires fix, and Set
   Queue's random resolutions. They guide where each character is; they don't cut it out.
 - Custom positions are also put into words ("a boy on the left, a girl on the right"), which
@@ -148,12 +153,12 @@ Content after the main negative prompt):
 masterpiece, 2girls, office
 
 Character 1 (Ava) at 0.000 0.000 0.480 1.000: girl, black hair, pink eyes, ...
-Character 2 (Mei) at C3: girl, red hair, red eyes, ...
+Character 2 (Mei) at C3, share 70%: girl, red hair, red eyes, ...
 Negative prompt: worst quality, ...
 ```
 
 - The name appears when the card has one; the position when AI's Choice was off (a box, or a
-  grid cell).
+  grid cell); the overlap share when it isn't 50.
 - Pasting an image fills the cards back in, switches them on and sets the positions. So does
   pasting that prompt text into the prompt box. Send to txt2img / img2img carries the cards
   as they are.

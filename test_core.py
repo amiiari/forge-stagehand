@@ -149,6 +149,20 @@ def test_region_weights():
     soft = region_weights([(0.0, 0.0, 0.6, 1.0), (0.4, 0.0, 1.0, 1.0)], 6, 10, blur=1.5)
     assert torch.allclose(soft.sum(0), torch.ones(60), atol=1e-5)
     assert torch.allclose(soft[1].reshape(6, 10)[:, 5], soft[2].reshape(6, 10)[:, 4], atol=1e-5)
+    # overlap shares: 75 vs 25 splits the overlap 3:1; each one's own part and the
+    # background are untouched; equal shares are exactly the plain split
+    boxes = [(0.0, 0.0, 0.6, 1.0), (0.4, 0.0, 1.0, 1.0)]
+    plain = region_weights(boxes, 4, 10, blur=0).reshape(3, 4, 10)
+    lap = region_weights(boxes, 4, 10, blur=0, shares=[75, 25]).reshape(3, 4, 10)
+    assert torch.allclose(lap[1, :, 5], torch.full((4,), 0.75)) and torch.allclose(lap[2, :, 5], torch.full((4,), 0.25))
+    assert torch.equal(lap[:, :, :4], plain[:, :, :4]) and torch.equal(lap[:, :, 6:], plain[:, :, 6:])
+    assert torch.equal(region_weights(boxes, 4, 10, shares=[60, 60]), region_weights(boxes, 4, 10))
+    edge = region_weights([(0.0, 0.0, 0.5, 1.0)] * 2, 6, 10, blur=1.5, shares=[90, 10]).reshape(3, 6, 10)
+    assert torch.allclose(edge[0], region_weights([(0.0, 0.0, 0.5, 1.0)] * 2, 6, 10, blur=1.5).reshape(3, 6, 10)[0])
+    assert torch.allclose(edge.sum(0), torch.ones(6, 10), atol=1e-5)
+    # 0% yields every overlap but still splits a spot both claim at 0
+    zero = region_weights(boxes, 4, 10, blur=0, shares=[0, 100]).reshape(3, 4, 10)
+    assert zero[2, :, 5].gt(0.99).all() and torch.allclose(zero.sum(0), torch.ones(4, 10))
 
 
 def test_region_context():
@@ -371,8 +385,13 @@ def test_png_info_lines():
                     "Character 2 at 0.500 0.000 1.000 0.500: girl,\nsecond line")
     got_base, got = read(text)
     assert got_base == base
-    assert got == {1: {"name": "Fran (sait0moriyama)", "box": "", "text": "girl, source#hug, [a::7]"},
-                   2: {"name": "", "box": "0.500 0.000 1.000 0.500", "text": "girl,\nsecond line"}}
+    assert got == {1: {"name": "Fran (sait0moriyama)", "box": "", "share": 50, "text": "girl, source#hug, [a::7]"},
+                   2: {"name": "", "box": "0.500 0.000 1.000 0.500", "share": 50, "text": "girl,\nsecond line"}}
+    # an overlap share is written only when it isn't the default, and read back
+    shared = show("b", [(1, "Ava", "B3", "girl", 70), (2, "", "D3", "girl", 50)])
+    assert shared == "b\n\nCharacter 1 (Ava) at B3, share 70%: girl\nCharacter 2 at D3: girl"
+    assert {n: c["share"] for n, c in read(shared)[1].items()} == {1: 70, 2: 50}
+    assert read("Character 1, share 0%: girl")[1][1]["share"] == 0
     # a multi-line card (a preset of appearance / outfit / proportions lines, a blank line
     # included) comes back exactly, through the PNG info and through the ⟦n⟧ merge
     from lib_stagehand.characters import merge, split
@@ -382,7 +401,7 @@ def test_png_info_lines():
     assert split(merge("base", {1: card}))[1][1] == card
     # an Undesired Content section with no main negative prompt
     assert show("", [(2, "", None, "tan, dark skin")]) == "Character 2: tan, dark skin"
-    assert read("Character 2: tan, dark skin") == ("", {2: {"name": "", "box": "", "text": "tan, dark skin"}})
+    assert read("Character 2: tan, dark skin") == ("", {2: {"name": "", "box": "", "share": 50, "text": "tan, dark skin"}})
     # prompts without characters pass through, including ones that merely mention the word
     assert read("a Character study, 1girl") == ("a Character study, 1girl", {})
     # a whole PNG info pasted as a prompt is left alone: its UC lines would become prompts
@@ -413,7 +432,7 @@ def test_grid_points():
     # PNG info lines carry a cell instead of a box
     text = show("base", [(1, "Ava", "B2", "girl, black hair")])
     assert text == "base\n\nCharacter 1 (Ava) at B2: girl, black hair"
-    assert read(text)[1] == {1: {"name": "Ava", "box": "B2", "text": "girl, black hair"}}
+    assert read(text)[1] == {1: {"name": "Ava", "box": "B2", "share": 50, "text": "girl, black hair"}}
 
 
 def test_has_image():

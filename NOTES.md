@@ -141,6 +141,15 @@ the one-prompt image.
   draw a character anywhere, even inside the other's box, and then its own prompt doesn't
   reach it. Bigger figures (cowboy shot, upper body) stay in their boxes.
 
+### Overlap share
+
+Where places overlap, each spot used to be split evenly. Each card now has a share (percent,
+50 by default); the characters' weights at a spot are scaled by their shares and renormalized
+to the same total, so the background's part of a blurred edge, and a spot one character has
+alone, don't change. 0% keeps a sliver (0.1) so a spot claimed only by 0% cards still splits.
+It travels as `, share N%` in the character's line, written only when it isn't 50, so older
+PNG info and API callers read as before. Not A/B tested yet on the lap-pillow case it's for.
+
 ### Interaction tags
 
 `source#x` / `target#x` / `mutual#x` become plain words: the action goes into each

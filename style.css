@@ -166,6 +166,13 @@
     border-left: 3px solid var(--nai-char) !important;
 }
 
+/* the overlap share: a short slider under the card, not a full-width bar per card */
+.nai-panel .nai-char-card .nai-share {
+    max-width: 340px;
+    padding-top: 2px !important;
+    padding-bottom: 6px !important;
+}
+
 /* Tag Autocomplete's suggestion list hangs below the prompt box: the card mustn't clip it
    (Forge already unclips the card itself, as a gradio-group) */
 .nai-panel .nai-char-card .styler {
