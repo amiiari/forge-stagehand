@@ -394,8 +394,11 @@ def match_faces(faces: list, size: tuple, weights: torch.Tensor, picks: dict | N
     one_to_one (faces, persons): each character gets one detection. picks {character: k} hand
     a character the k-th detection from the left; the rest get the best overall fit by how
     much of each detection lies in each character's region, ties going left to right in card
-    order. Detections left over (more than there are characters) stay None. Otherwise (hands,
-    several per character) each detection goes to the region it overlaps most."""
+    order. Detections left over (more than there are characters: the same character drawn twice
+    on a multi-angle sheet) go to the character holding most of them -- None only when no one
+    holds at least half (outside every box, or straddling two). Otherwise (hands, eyes: any
+    number per character, a covered eye or a third one included) each detection goes to the
+    region it overlaps most."""
     out = [None] * len(faces)
     if not faces or not len(weights):
         return out
@@ -426,6 +429,9 @@ def match_faces(faces: list, size: tuple, weights: torch.Tensor, picks: dict | N
         cost = [[-float(fit[j, r]) + 1e-6 * abs(a - b) for b, r in enumerate(chars)] for a, j in enumerate(free)]
         for a, b in zip(*linear_sum_assignment(cost)):
             out[free[a]] = chars[b]
+    for j in range(len(faces)):
+        if out[j] is None and float(fit[j].max()) >= 0.5:
+            out[j] = int(fit[j].argmax())
     return out
 
 

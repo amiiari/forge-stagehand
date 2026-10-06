@@ -130,8 +130,11 @@ When it's backwards:
 - **ADetailer gives each face its own character.** Wherever ADetailer's prompt is `[PROMPT]`
   (or empty), each face gets the main prompt plus its character's prompt, and that
   character's Undesired Content. Faces are matched to characters by position; a card's
-  **Face** dropdown (`1st from left`, …) overrides that. Hands go to whichever character's area
-  they're in. The console prints which face went to whom. Not with the Merge mask modes.
+  **Face** dropdown (`1st from left`, …) overrides that. A character drawn more than once
+  (a multi-angle sheet) gets every one of her faces. Hands and eyes (any ADetailer model with
+  "hand" or "eye" in its name, e.g. `mediapipe_face_mesh_eyes_only`) go to whichever
+  character's area they're in, however many each one shows. The console prints which face went
+  to whom. Not with the Merge mask modes.
 - **Batch ADetailer and Batch Hires-Fix** (the batch-adetailer extension) re-run images from
   their PNG info, characters and positions included.
 - **XYZ Plot's Prompt S/R** only searches the main prompt.

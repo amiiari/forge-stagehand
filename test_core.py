@@ -436,8 +436,14 @@ def test_match_faces():
     assert match_faces([right, left], (1024, 1024), columns) == [1, 0]
     # a hand-picked character takes the k-th face from the left; the other gets the rest
     assert match_faces([right, left], (1024, 1024), columns, {0: 1}) == [0, 1]
-    # one to one: a small extra face in character 2's column stays unassigned
-    assert match_faces([left, far_right, right], (1024, 1024), columns) == [0, None, 1]
+    # an extra face (the same character drawn twice: multi-angle sheets) goes to the character
+    # whose area it's in, after the one-to-one pass
+    assert match_faces([left, far_right, right], (1024, 1024), columns) == [0, 1, 1]
+    whole = region_weights(auto_boxes(1), 32, 32)[1:].reshape(1, 32, 32)
+    assert match_faces([(1000, 300, 1500, 800), (300, 200, 450, 350)], (1600, 1280), whole) == [0, 0]
+    # ...but not one outside every box: that's nobody's
+    corner = region_weights([(0.0, 0.0, 0.4, 0.4)], 32, 32)[1:].reshape(1, 32, 32)
+    assert match_faces([(50, 50, 150, 150), (800, 800, 900, 900)], (1024, 1024), corner) == [0, None]
     # fewer faces than characters: the face goes to the character it sits in
     assert match_faces([right], (1024, 1024), columns) == [1]
     assert match_faces([], (1024, 1024), columns) == []
@@ -452,11 +458,13 @@ def test_match_faces():
     six = region_weights(auto_boxes(6), 32, 64)[1:].reshape(6, 32, 64)
     faces = [(c * 200 + dx, 100, c * 200 + dx + 60, 160) for c in range(6) for dx in (20, 110)]
     picked = match_faces(faces, (1200, 600), six)
-    assert [picked[2 * c] if picked[2 * c] is not None else picked[2 * c + 1] for c in range(6)] == list(range(6))
-    assert picked.count(None) == 6
+    assert picked == [c for c in range(6) for _ in (0, 1)]
     # hands: several per character, each to the region it's in, picks ignored
     hands = [(50, 600, 100, 650), (400, 600, 450, 650), (600, 600, 650, 650), (900, 600, 950, 650)]
     assert match_faces(hands, (1024, 1024), columns, one_to_one=False) == [0, 0, 1, 1]
+    # eyes the same way, however many each character shows: one covered, or three
+    eyes = [(150, 200, 180, 220), (600, 200, 630, 220), (700, 200, 730, 220), (800, 200, 830, 220)]
+    assert match_faces(eyes, (1024, 1024), columns, one_to_one=False) == [0, 1, 1, 1]
 
 
 def test_placement():

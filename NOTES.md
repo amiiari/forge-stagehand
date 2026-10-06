@@ -202,8 +202,12 @@ went, a frown turned neutral. Stagehand wraps two of ADetailer's methods: `pred_
 (just before each is inpainted) makes `[PROMPT]` the main prompt plus that character's prompt.
 
 - Matching is `scipy.optimize.linear_sum_assignment` over how much of each mask lies in each
-  character's region on Anima's token grid; ties go left to right in card order. Hands are
-  many-to-one.
+  character's region on Anima's token grid; ties go left to right in card order. Hands and
+  eyes are many-to-one (a covered eye, or a third one, just counts as fewer or more).
+- Faces past one per character used to stay unmatched and got the main prompt alone. On a
+  one-character multi-angle sheet (2026-10-06) that repainted the close-up's face from the main
+  prompt: red eyes where the card said black, lip piercings gone. Now a leftover face goes to
+  whoever holds at least half of it.
 - A failure in either wrapper falls back to ADetailer's own prompts; an ADetailer version
   without those methods gets a startup warning.
 

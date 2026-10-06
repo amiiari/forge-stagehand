@@ -553,9 +553,11 @@ def _face_pass(script, p, args, masks):
     weights = region_weights([info["boxes"][n] for n in numbers], h, w)[1:].reshape(len(numbers), h, w)
     found = [(j, m.getbbox()) for j, m in enumerate(masks)]
     found = [(j, box) for j, box in found if box]
-    # hands come several per character: each goes to the region it's in, no picks
-    hands = "hand" in str(getattr(args, "ad_model", "")).lower()
-    picked = match_faces([box for _, box in found], (width, height), weights, None if hands else info.get("faces"), one_to_one=not hands)
+    # hands and eyes come several per character (or one, an eye covered): each goes to the
+    # region it's in, no picks
+    model = str(getattr(args, "ad_model", "")).lower()
+    many = "hand" in model or "eye" in model
+    picked = match_faces([box for _, box in found], (width, height), weights, None if many else info.get("faces"), one_to_one=not many)
     owners = {j: r for (j, _), r in zip(found, picked) if r is not None}
     if owners:
         rank = {j: k for k, (j, _) in enumerate(sorted(found, key=lambda f: f[1][0] + f[1][2]))}
