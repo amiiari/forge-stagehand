@@ -89,6 +89,12 @@ the top, beside txt2img and img2img) lists every preset, with a search: pick one
 prompt and Undesired Content, change its name and Save to rename it, or Delete it (it asks
 first). Presets live in `stagehand character
 presets.json` in Forge's folder, so updating or reinstalling the extension keeps them.
+Original characters, named like `Ruby (OC)` or `Fran (artist, OC)`, are listed first.
+
+Several people on one Forge folder, each with their own settings file (`--ui-settings-file`,
+as forge link's slots run): each gets their own presets, in `stagehand character
+presets.json` beside their settings file, on top of the shared ones in Forge's folder. The
+shared ones can't be changed or deleted there; saving one (or renaming it) makes your own copy.
 
 ### Positions
 

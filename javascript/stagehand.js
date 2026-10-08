@@ -906,7 +906,7 @@
             panel.appendChild(list);
         }
         // original characters ("Ruby (OC)") first, then A-Z
-        const oc = (n) => (n.endsWith("(OC)") ? 0 : 1);
+        const oc = (n) => (/[(,]\s*OC\)$/.test(n) ? 0 : 1);
         const names = Object.keys(presets).sort((a, b) => oc(a) - oc(b) || a.localeCompare(b, undefined, {sensitivity: "base"}));
         const key = JSON.stringify(names);
         if (list.dataset.key !== key) {

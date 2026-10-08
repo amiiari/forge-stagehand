@@ -309,15 +309,22 @@ def _no_change(extra=0):
 
 # ---------------------------------------------------------------------------- presets
 # A character saved by name: its prompt and Undesired Content exactly as typed, newlines
-# included. In Forge's folder, not the extension's, so an update or reinstall keeps them.
-PRESETS = os.path.join(data_path, "stagehand character presets.json")
+# included. Outside the extension, so an update or reinstall keeps them. Two files:
+# - SHARED, in Forge's folder: the host's (imported from Notion, say);
+# - PRESETS, beside this Forge's settings file: your own, which only you see and change.
+# On a normal Forge they're the same file. forge link's slots share one Forge folder but each
+# has its own settings file, so each person gets their own presets on top of the host's, and
+# can't change the host's: saving one under its name (or renaming it) makes their own copy.
+SHARED = os.path.join(data_path, "stagehand character presets.json")
+PRESETS = os.path.join(os.path.dirname(os.path.abspath(shared.cmd_opts.ui_settings_file)), "stagehand character presets.json")
+_OC = re.compile(r"[(,]\s*OC\)$")  # "Ruby (OC)", "Fran (sait0moriyama, OC)": original characters
 
 
-def _presets(strict=False):
-    """The saved presets. strict (before writing): an existing file that can't be read raises
+def _read_presets(path, strict=False):
+    """A presets file. strict (before writing): an existing file that can't be read raises
     instead of reading as empty, so a save can't wipe it."""
     try:
-        with open(PRESETS, encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
     except FileNotFoundError:
         return {}
@@ -332,9 +339,25 @@ def _presets(strict=False):
     return {k: v for k, v in data.items() if isinstance(v, dict)}
 
 
+def _separate():
+    """True when the host's presets aren't your own file (a forge link slot)."""
+    return os.path.normcase(os.path.abspath(SHARED)) != os.path.normcase(os.path.abspath(PRESETS))
+
+
+def _shared():
+    """The host's presets, when they aren't your own file."""
+    return _read_presets(SHARED) if _separate() else {}
+
+
+def _presets():
+    """Every preset you can use: the host's, with your own (same name: yours) on top."""
+    return {**_shared(), **_read_presets(PRESETS)}
+
+
 def _presets_for_writing():
+    """Your own presets, to change and write back; None (and a warning) when unreadable."""
     try:
-        return _presets(strict=True)
+        return _read_presets(PRESETS, strict=True)
     except (OSError, ValueError) as e:
         gr.Warning(f"Couldn't read {os.path.basename(PRESETS)} ({e}). Fix or move it; nothing was changed.")
         return None
@@ -348,9 +371,9 @@ def _write_presets(presets):
     os.replace(tmp, PRESETS)
 
 
-def _presets_json(presets=None):
+def _presets_json():
     """Every preset, for the cards' name-box search (stagehand.js reads it from a hidden box)."""
-    return json.dumps(presets if presets is not None else _presets(), ensure_ascii=False)
+    return json.dumps(_presets(), ensure_ascii=False)
 
 
 def _save_preset(name, prompt, uc):
@@ -367,20 +390,27 @@ def _save_preset(name, prompt, uc):
     replaced = name in presets
     presets[name] = {"prompt": prompt, "uc": uc or ""}
     _write_presets(presets)
-    gr.Info(f'{"Updated" if replaced else "Saved"} the preset "{name}".')
-    return _presets_json(presets)
+    if not replaced and name in _shared():
+        gr.Info(f'Saved your own "{name}" (the shared one stays as it was).')
+    else:
+        gr.Info(f'{"Updated" if replaced else "Saved"} the preset "{name}".')
+    return _presets_json()
 
 
 def _delete_preset(name):
-    if not name:  # nothing picked, or the confirmation was cancelled: leave the list as it is
-        return gr.update()
+    """True when one of your presets was deleted. A shared one can't be: only your copy of it."""
+    if not name:  # nothing picked, or the confirmation was cancelled
+        return False
     presets = _presets_for_writing()
     if presets is None:
-        return gr.update()
-    if presets.pop(name, None) is not None:
-        _write_presets(presets)
-        gr.Info(f'Deleted the preset "{name}".')
-    return _presets_json(presets)
+        return False
+    if presets.pop(name, None) is None:
+        if name in _shared():
+            gr.Warning(f'"{name}" is one of the shared presets: it cannot be deleted here.')
+        return False
+    _write_presets(presets)
+    gr.Info(f'Deleted your copy of "{name}"; the shared one is back.' if name in _shared() else f'Deleted the preset "{name}".')
+    return True
 
 
 # ------------------------------------------------------------------- the Presets tab
@@ -390,7 +420,7 @@ def _preset_names(search=""):
     """Matching names, original characters ("Ruby (OC)") first, then A-Z."""
     words = (search or "").lower().split()
     names = [name for name in _presets() if all(w in name.lower() for w in words)]
-    return sorted(names, key=lambda n: (not n.endswith("(OC)"), n.lower()))
+    return sorted(names, key=lambda n: (not _OC.search(n), n.lower()))
 
 
 def _tab_list(search, pick=None):
@@ -412,22 +442,29 @@ def _tab_save(picked, name, prompt, uc, search):
     presets = _presets_for_writing()
     if presets is None:
         return gr.update()
-    if name != picked and name in presets:
+    shared_ = _shared()
+    if name != picked and (name in presets or name in shared_):
         gr.Warning(f'There is already a preset "{name}": pick it to edit it, or use another name.')
         return gr.update()
-    if picked and picked != name:
-        presets.pop(picked, None)
+    mine = picked in presets  # a shared one you haven't saved yet: this makes your own copy
+    renamed = mine and picked != name and presets.pop(picked) is not None
     presets[name] = {"prompt": prompt, "uc": uc or ""}
     _write_presets(presets)
-    gr.Info(f'Renamed "{picked}" to "{name}".' if picked and picked != name else f'Saved the preset "{name}".')
+    if renamed:
+        gr.Info(f'Renamed "{picked}" to "{name}".')
+    elif picked in shared_ and not mine:
+        gr.Info(f'Saved "{name}" as your own; the shared "{picked}" stays as it was.')
+    else:
+        gr.Info(f'Saved the preset "{name}".')
     return _tab_list(search, name)
 
 
 def _tab_delete(name, search):
-    _delete_preset(name)  # "" when nothing is picked or the confirmation was cancelled
-    if name:
-        return (_tab_list(search),) + _tab_pick(None)
-    return (gr.update(),) * 4
+    # "" when nothing is picked or the confirmation was cancelled
+    if not _delete_preset(name):
+        return (gr.update(),) * 4
+    # your copy of a shared one: the shared one shows again
+    return (_tab_list(search, name),) + _tab_pick(name if name in _presets() else None)
 
 
 def _presets_tab():
@@ -448,7 +485,9 @@ def _presets_tab():
                     delete = gr.Button("🗑 Delete", scale=0, min_width=110)
                 gr.HTML('<p class="stagehand-presets-hint">Pick a preset to edit it; change its name and Save to rename it. '
                         "+ New starts an empty one. On the txt2img / img2img tabs, typing in a character card's name box "
-                        "finds a preset, and 💾 on a card saves one.</p>")
+                        "finds a preset, and 💾 on a card saves one."
+                        + (" Your presets are yours alone. The shared ones (from the host) can't be changed or deleted "
+                           "here: saving one, or renaming it, makes your own copy." if _separate() else "") + "</p>")
         search.input(_tab_list, [search], [names], show_progress="hidden")
         refresh.click(_tab_list, [search, names], [names], show_progress="hidden")
         names.input(_tab_pick, [names], [name, prompt, uc], show_progress="hidden")

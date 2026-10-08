@@ -425,8 +425,8 @@ def test_presets_tab():
     import tempfile
 
     cp = _script_module()
-    real = cp.PRESETS
-    cp.PRESETS = os.path.join(tempfile.mkdtemp(), "presets.json")
+    real = cp.PRESETS, cp.SHARED
+    cp.PRESETS = cp.SHARED = os.path.join(tempfile.mkdtemp(), "presets.json")
     try:
         cp._write_presets({"Sally": {"prompt": "girl, white hair", "uc": ""}, "Lily": {"prompt": "girl, purple hair", "uc": "hat"}})
         cp._tab_save("Sally", "Sally (modern)", "girl, white hair\nred eyes", "", "")
@@ -439,8 +439,20 @@ def test_presets_tab():
         assert cp._preset_names("ki") == ["Kira"] and cp._tab_pick("Lily") == ("Lily", "girl, purple hair", "hat")
         cp._tab_delete("Kira", "")
         assert "Kira" not in cp._presets()
+        assert cp._preset_names() == ["Lily", "Sally (modern)"] and cp._OC.search("Fran (sait0moriyama, OC)")
+
+        # a forge link slot: the host's presets are shared and read-only, yours are on top
+        cp.PRESETS = os.path.join(tempfile.mkdtemp(), "mine.json")
+        cp._save_preset("Kira", "girl, black hair", "")
+        cp._save_preset("Lily", "girl, purple hair, glasses", "")  # your own copy of a shared one
+        assert cp._presets()["Lily"]["prompt"] == "girl, purple hair, glasses" and set(cp._presets()) == {"Kira", "Lily", "Sally (modern)"}
+        assert not cp._delete_preset("Sally (modern)") and "Sally (modern)" in cp._presets()  # shared: refused
+        assert cp._delete_preset("Lily") and cp._presets()["Lily"]["prompt"] == "girl, purple hair"  # the shared one is back
+        cp._tab_save("Sally (modern)", "Sally", "girl, white hair", "", "")  # renaming a shared one copies it
+        assert {"Sally", "Sally (modern)"} <= set(cp._presets()) and set(cp._read_presets(cp.PRESETS)) == {"Kira", "Sally"}
+        assert set(cp._read_presets(cp.SHARED)) == {"Lily", "Sally (modern)"}, "the shared file was written"
     finally:
-        cp.PRESETS = real
+        cp.PRESETS, cp.SHARED = real
 
 
 def test_reference_actions():
