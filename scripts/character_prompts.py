@@ -387,8 +387,10 @@ def _delete_preset(name):
 # Every preset in one place, to rename, edit or delete; a card's name box picks them and its 💾
 # saves them. stagehand.js presses ↻ whenever the tab is opened, so the list is never stale.
 def _preset_names(search=""):
+    """Matching names, original characters ("Ruby (OC)") first, then A-Z."""
     words = (search or "").lower().split()
-    return [name for name in _presets() if all(w in name.lower() for w in words)]
+    names = [name for name in _presets() if all(w in name.lower() for w in words)]
+    return sorted(names, key=lambda n: (not n.endswith("(OC)"), n.lower()))
 
 
 def _tab_list(search, pick=None):

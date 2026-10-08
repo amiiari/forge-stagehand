@@ -433,7 +433,9 @@ def test_presets_tab():
         assert cp._presets() == {"Lily": {"prompt": "girl, purple hair", "uc": "hat"}, "Sally (modern)": {"prompt": "girl, white hair\nred eyes", "uc": ""}}
         cp._tab_save("Lily", "Sally (modern)", "girl", "", "")  # taken: nothing changes
         assert cp._presets()["Sally (modern)"]["prompt"] == "girl, white hair\nred eyes" and "Lily" in cp._presets()
-        cp._tab_save(None, "Kira", "girl, black hair", "", "")  # + New
+        cp._tab_save(None, "Kira (OC)", "girl, black hair", "", "")  # + New
+        assert cp._preset_names() == ["Kira (OC)", "Lily", "Sally (modern)"]  # OCs first
+        cp._tab_save("Kira (OC)", "Kira", "girl, black hair", "", "")
         assert cp._preset_names("ki") == ["Kira"] and cp._tab_pick("Lily") == ("Lily", "girl, purple hair", "hat")
         cp._tab_delete("Kira", "")
         assert "Kira" not in cp._presets()
