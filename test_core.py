@@ -420,6 +420,34 @@ def _script_module(name="character_prompts"):
                 sys.modules[k] = v
 
 
+def test_reference_actions():
+    """A character card's add / delete / duplicate / reorder / undo, on the references (_act)."""
+    import json
+
+    pr = _script_module("precise_reference")
+
+    def run(op, shown, cards):
+        out = pr._act(json.dumps(op), shown, *[v for c in cards for v in c])
+        size = len(pr.EMPTY)
+        return out[0], [tuple(out[5 + i * size : 5 + (i + 1) * size]) for i in range(pr.MAX_REFS)]
+
+    sally = ("s.png", "Character", 0.8, 0.6, "Character 1", True, False)
+    whole = ("w.png", "Character", 1.0, 1.0, "Whole image", False, False)
+    empty = pr.EMPTY
+    shown, cards = run({"op": "add", "n": 2}, [True, True, False, False], [sally, whole, empty, empty])
+    assert shown == [True, True, True, False] and cards[2][4] == "Character 2" and cards[2][0] is None
+    shown, cards = run({"op": "copy", "from": 1, "to": 3}, [True, True, False, False], [sally, whole, empty, empty])
+    assert shown == [True, True, True, False] and cards[2] == sally[:4] + ("Character 3",) + sally[5:]
+    shown, cards = run({"op": "swap", "a": 1, "b": 2}, [True, True, True, False], [sally, whole, sally[:4] + ("Character 2",) + sally[5:], empty])
+    assert [c[4] for c in cards[:3]] == ["Character 2", "Whole image", "Character 1"]
+    shown, cards = run({"op": "drop", "n": 1}, [True, True, False, False], [sally, whole, empty, empty])
+    assert shown == [False, True, False, False] and cards[0] == empty and cards[1] == whole
+    # an undo puts targets back on shown cards only; a hidden card keeps a fresh one
+    shown, cards = run({"op": "targets", "values": ["Character 4"] * 4}, [True, False, False, False], [sally, empty, empty, empty])
+    assert [c[4] for c in cards[:2]] == ["Character 4", "Whole image"]
+    assert run("not json", [True] + [False] * 3, [sally, empty, empty, empty])[1][0] == sally
+
+
 def test_prompt_lines():
     """forge link forwards a slot's cards as PNG-info lines; they must read back as the same cards."""
     from lib_stagehand.characters import read
@@ -677,6 +705,24 @@ def test_region_lora():
     finally:
         region_lora.current = None
     assert torch.allclose((hooked - plain)[0, :, 0].reshape(2, 4), torch.tensor([[0, 0, 3.0, 3.0]] * 2))
+
+    # a batch of two images where a wildcard rolled character 2 a different LoRA each: rows
+    # b % 2 == 0 are image 0 (cond and uncond rows alike), rows b % 2 == 1 image 1
+    regions = RegionSession([(0, 0, 0.5, 1), (0.5, 0, 1, 1)], [[(None, None)] * 2] * 2, step=lambda: 0, blur=0, numbers=[1, 2])
+    regions.grid = (1, 2, 4)
+    linear = nn.Linear(3, 3, bias=False)
+    owners = {(2, 0): (2, {0}), (2, 1): (2, {1})}
+    session = region_lora.LoraSession({(2, 0): {linear: [(down, up, 1.0)]}, (2, 1): {linear: [(down, up, 2.0)]}}, regions, "Masked", owners)
+    assert session.owner(2, 1) == (2, 1) and session.owner(1, 0) is None
+    out = session.adjust(linear, torch.ones(4, 8, 3), torch.zeros(4, 8, 3))[:, :, 0].reshape(4, 2, 4)[:, 0, 2]
+    assert out.tolist() == [3.0, 6.0, 3.0, 6.0], out  # each image its own LoRA, in her column
+    session = region_lora.LoraSession({(2, 0): {}, (2, 1): {}}, regions, "Separate pass", owners)
+
+    def apply_model(x, t, **c):
+        return torch.full((2, 1, 1, 4, 8), 0.0 if session.pass_owner is None else 1.0 + session.pass_owner[1])
+
+    out = session.wrapper()(apply_model, {"input": None, "timestep": None, "c": {}})
+    assert out[:, 0, 0, 0, 4].tolist() == [1.0, 2.0] and not out[:, 0, 0, 0, :4].any(), out
 
 
 if __name__ == "__main__":

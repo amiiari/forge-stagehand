@@ -69,28 +69,34 @@ MANUAL = ("Boxes", "Grid")
 HELP = """<details class="nai-help"><summary>How to use</summary><div>
 <ol>
 <li><b>Main prompt:</b> the scene, the style, and how many people (<code>2girls</code>, <code>1boy, 1girl</code>).
-Don't describe the characters there.</li>
-<li><b>+ Add character</b> adds a card. Describe only that character in its box: hair, eyes, outfit, expression.
-Whatever that character must not have goes under <b>Undesired Content</b>. A card's <b>On</b> / <b>Off</b> pill switches that
-character off without deleting it; the <b>Character Prompts</b> pill in the Stagehand header does that for all of
-them (it works with Stagehand closed).</li>
-<li><b>Presets:</b> name a card, then &#128190; saves it (prompt and Undesired Content, line breaks kept). To use one
-again, pick it in the list next to <b>+ Add character</b>, then click <b>+ Add character</b>; &#128465; next to the list
-deletes the selected preset.</li>
+Don't describe the characters there. The count is yours to keep right: switching a card off doesn't change it.</li>
+<li><b>+ Add character</b> adds a card. Start its box with <code>girl</code> or <code>boy</code> (NovelAI's habit: it
+also makes the position words say "a girl on the left" instead of "a character on the left"), then describe only
+that character: hair, eyes, outfit, expression. Whatever that character must not have goes under <b>Undesired
+Content</b> (a dot on the tab when it has something). A card's <b>On</b> / <b>Off</b> pill switches that character off
+without deleting it; the <b>Character Prompts</b> pill in the Stagehand header does that for all of them (it works
+with Stagehand closed).</li>
+<li><b>Presets:</b> name a card, then &#128190; saves it (prompt and Undesired Content, line breaks kept). To use one,
+type in a card's name box and pick it from the list: the card's text is replaced (Ctrl+Z undoes it), its place and
+references stay. &#8943; on a card has Delete preset, the ADetailer face, the overlap share and Duplicate.</li>
 <li><b>Positions:</b> by default the characters stand left to right in card order (&uarr; &darr; to reorder).
 Drag one to place it yourself -- on the small canvas beside its card, or over the output image. <b>Boxes</b>: drag
 a box anywhere on it, resize it by any edge or corner. <b>Grid</b>: NovelAI's 5&times;5 grid; drag a character's
 dot to a cell, which marks its center, and each character gets the part of the image nearest its dot. Good for
 layouts columns can't do: one above the other (bunk beds), diagonal. Put a character's cell where its
 <i>head</i> will be. Both scale with the image. <b>Reset</b> puts everyone back in the default columns;
-<b>Switch</b> swaps two characters' places; Ctrl+Z / Ctrl+Y undo and redo (outside a text box).</li>
+<b>Switch</b> swaps two characters' places; <b>+</b> on a card's small map adds another place for that character
+(&times; on a place removes it); Ctrl+Z / Ctrl+Y undo and redo (outside a text box).</li>
 <li><b>Interactions:</b> <code>source#hug</code> in the box of the one doing it, <code>target#hug</code> in the
 box of the one it's done to, <code>mutual#kiss</code> in both for a shared action. If it comes out the wrong way
 round on every seed, swap the two cards (&uarr; &darr;): some poses have a side the model likes to put the doer on.
 The model also tends to give the passive role (carried, lying down) to the softer-looking outfit, which no card
 order fixes: re-roll.</li>
-<li><b>Face</b> (ADetailer): leave it on <i>auto</i>, and each face gets repainted with its own character's prompt.
-Pick "Nth from left" only if a face got the wrong character.</li>
+<li><b>Reference</b> tab: images of this character (Precise Reference), used only in her part of the image and on her
+face in ADetailer.</li>
+<li><b>Face</b> (ADetailer, in &#8943;): leave it on <i>auto</i>, and each face gets repainted with its own character's
+prompt. Pick "Nth from left" only if a face got the wrong character. <b>Overlap share %</b> (also in &#8943;): where two
+places overlap, they split it in proportion (70 vs 30 gives 70/30); 50 each by default.</li>
 </ol>
 <p>LoRAs typed in a box apply only to that character (Settings &gt; Stagehand &gt; Character LoRAs can make them
 apply to the whole image). Wildcards and Set Queue words work inside boxes.
@@ -342,8 +348,9 @@ def _write_presets(presets):
     os.replace(tmp, PRESETS)
 
 
-def _preset_choices(presets=None):
-    return [("Empty card", "")] + [(name, name) for name in sorted(presets if presets is not None else _presets(), key=str.lower)]
+def _presets_json(presets=None):
+    """Every preset, for the cards' name-box search (stagehand.js reads it from a hidden box)."""
+    return json.dumps(presets if presets is not None else _presets(), ensure_ascii=False)
 
 
 def _save_preset(name, prompt, uc):
@@ -361,7 +368,7 @@ def _save_preset(name, prompt, uc):
     presets[name] = {"prompt": prompt, "uc": uc or ""}
     _write_presets(presets)
     gr.Info(f'{"Updated" if replaced else "Saved"} the preset "{name}".')
-    return gr.update(choices=_preset_choices(presets))
+    return _presets_json(presets)
 
 
 def _delete_preset(name):
@@ -373,26 +380,21 @@ def _delete_preset(name):
     if presets.pop(name, None) is not None:
         _write_presets(presets)
         gr.Info(f'Deleted the preset "{name}".')
-    return gr.update(choices=_preset_choices(presets), value="")
+    return _presets_json(presets)
 
 
-def _add(shown, preset, *values):
+def _add(shown, *values):
     shown = list(shown)
     free = [i for i in range(MAX_CHARS) if not _taken(shown, values, i)]
     if not free:
         gr.Warning(f"All {MAX_CHARS} character cards are in use. Delete one first.")
-        return [gr.update()] + _no_change() + [gr.update()]
+        return [gr.update()] + _no_change()
     i = free[0]
     shown[i] = True
     updates = _no_change()
-    saved = _presets().get(preset) if preset else None
-    if preset and saved is None:
-        gr.Warning(f'The preset "{preset}" is gone (deleted elsewhere?). Added an empty card instead.')
-    card = _card_values(name=preset, prompt=saved.get("prompt", ""), uc=saved.get("uc", "")) if saved else _card_values()
-    updates[i * CARD_FIELDS : (i + 1) * CARD_FIELDS] = card
+    updates[i * CARD_FIELDS : (i + 1) * CARD_FIELDS] = _card_values()
     updates[MAX_CHARS * CARD_FIELDS + i] = gr.update(visible=True)
-    # back to "Empty card", so the next + doesn't quietly add the same character again
-    return [shown] + updates + [gr.update(value="") if saved else gr.update()]
+    return [shown] + updates
 
 
 def _remove(i):
@@ -785,38 +787,47 @@ class CharacterPrompts(scripts.Script):
                 # Reset, Switch and the canvas toggles: stagehand.js builds them in here
                 gr.HTML("", elem_id=f"nai_{tab}_chars_tools", elem_classes=["nai-title-cell", "nai-tools"])
                 gr.HTML("", elem_classes=["nai-spacer"])  # pushes the add button to the right
-                # a saved character for the next + (each card's 💾 saves one)
-                preset = gr.Dropdown(_preset_choices(), value="", show_label=False, container=False, scale=0, min_width=170,
-                                     elem_id=f"nai_{tab}_chars_preset", elem_classes=["nai-preset"])
-                delete_preset = gr.Button("🗑", elem_classes=["nai-icon", "nai-delete-preset"], min_width=30, scale=0)
                 add = gr.Button("+ Add character", elem_classes=["nai-add"], min_width=40, scale=0)
             shown = gr.State([False] * MAX_CHARS)
-            saves = []
+            # every preset as JSON, for the name boxes' search (stagehand.js); read on page load
+            # and whenever a name box gets focus, so presets saved elsewhere show up
+            presets = gr.Textbox(value=_presets_json, elem_id=f"nai_{tab}_chars_presets", elem_classes=["nai-hidden"], show_label=False, container=False)
+            references = getattr(shared.opts, "stagehand_precise_reference", True)
+            saves, deletes = [], []
 
             for i in range(MAX_CHARS):
                 with gr.Group(visible=False, elem_id=f"nai_{tab}_char{i + 1}", elem_classes=["nai-card", "nai-char-card", f"nai-char-{i + 1}"]) as card:
                     with gr.Row(elem_classes=["nai-card-head"]):
                         enabled = gr.Checkbox(value=True, label="On", container=False, scale=0, min_width=60, elem_classes=["nai-char-on"])
-                        name = gr.Textbox(value="", show_label=False, container=False, placeholder=f"Character {i + 1}", max_lines=1, min_width=80, elem_classes=["nai-char-name"])
-                        # which of ADetailer's detections gets this character's prompt; auto = by position
-                        face = gr.Dropdown(FACES, value=FACES[0], show_label=False, container=False, scale=0, min_width=120, elem_classes=["nai-char-face"])
+                        # also the preset search: stagehand.js lists the presets under it, and picking one fills the card
+                        name = gr.Textbox(value="", show_label=False, container=False, placeholder=f"Character {i + 1} (type to find a preset)",
+                                          max_lines=1, min_width=80, elem_classes=["nai-char-name"])
                         up = gr.Button("↑", elem_classes=["nai-icon", "nai-up"], min_width=30, scale=0)
                         down = gr.Button("↓", elem_classes=["nai-icon", "nai-down"], min_width=30, scale=0)
                         save = gr.Button("💾", elem_classes=["nai-icon", "nai-save-preset"], min_width=30, scale=0)
-                        copy = gr.Button("⧉", elem_classes=["nai-icon", "nai-copy"], min_width=30, scale=0)
-                        # another place for this character: stagehand.js adds it to the position field
-                        add_place = gr.Button("＋", elem_classes=["nai-icon", "nai-add-place"], min_width=30, scale=0)
-                        add_place.do_not_save_to_config = True
+                        # opens the row below (stagehand.js; no server round trip)
+                        more = gr.Button("⋯", elem_classes=["nai-icon", "nai-more-btn"], min_width=30, scale=0)
                         remove = gr.Button("🗑", elem_classes=["nai-icon", "nai-remove"], min_width=30, scale=0)
+                    with gr.Row(elem_classes=["nai-more"]):
+                        # which of ADetailer's detections gets this character's prompt; auto = by position
+                        face = gr.Dropdown(FACES, value=FACES[0], show_label=False, container=False, scale=0, min_width=150, elem_classes=["nai-char-face"])
+                        # only matters where places overlap
+                        share = gr.Number(value=SHARE, minimum=0, maximum=100, step=5, label="Overlap share %", scale=0, min_width=130,
+                                          elem_id=f"nai_{tab}_char{i + 1}_share", elem_classes=["nai-share"])
+                        copy = gr.Button("⧉ Duplicate", elem_classes=["nai-small", "nai-copy"], min_width=40, scale=0)
+                        delete = gr.Button("🗑 Delete preset", elem_classes=["nai-small", "nai-delete-preset"], min_width=40, scale=0)
                     with gr.Tabs(elem_classes=["nai-char-tabs"]):
                         with gr.Tab("Prompt"):
                             prompt = gr.Textbox(value="", show_label=False, lines=2, placeholder="girl, purple hair, ...", elem_id=f"nai_{tab}_char{i + 1}_prompt")
                         with gr.Tab("Undesired Content"):
                             uc = gr.Textbox(value="", show_label=False, lines=2, elem_id=f"nai_{tab}_char{i + 1}_uc")
+                        if references:
+                            with gr.Tab("Reference", elem_classes=["nai-ref-tab"]):
+                                # Precise Reference's cards for this character land here (stagehand.js)
+                                gr.HTML(f'<div class="nai-ref-slot" data-n="{i + 1}"></div>'
+                                        f'<button type="button" class="nai-ref-add" data-n="{i + 1}">+ Add reference</button>')
                     # Rendered but hidden by CSS: the position overlay writes here.
                     box = gr.Textbox(value="", elem_id=f"nai_{tab}_char{i + 1}_box", elem_classes=["nai-hidden"], show_label=False, container=False)
-                    # only matters where places overlap
-                    share = gr.Slider(0, 100, value=SHARE, step=5, label="Overlap share %", elem_id=f"nai_{tab}_char{i + 1}_share", elem_classes=["nai-share"])
                 cards.append(card)
                 ups.append(up)
                 downs.append(down)
@@ -842,8 +853,13 @@ class CharacterPrompts(scripts.Script):
                 ]
                 prompt.change(_revealer(i), [prompt, shown], [shown, card], show_progress="hidden")
                 remove.click(_remove(i), [shown], [shown, card] + card_fields, show_progress="hidden")
-                save.click(_save_preset, [name, prompt, uc], [preset], show_progress="hidden")
+                save.click(_save_preset, [name, prompt, uc], [presets], show_progress="hidden")
+                # asks first; a cancel hands the backend "" and nothing is deleted
+                delete.click(_delete_preset, [name], [presets], show_progress="hidden",
+                             _js="(name) => [name && confirm(`Delete the character preset \"${name}\"?`) ? name : '']")
+                name.focus(lambda: _presets_json(), None, [presets], show_progress="hidden")
                 saves.append(save)
+                deletes += [delete, more]
 
             everything = fields + cards
             for i in range(MAX_CHARS):
@@ -851,21 +867,13 @@ class CharacterPrompts(scripts.Script):
                 downs[i].click(_swap(i, i + 1), [shown] + fields, [shown] + everything, show_progress="hidden")
                 copies[i].click(_duplicate(i), [shown] + fields, [shown] + everything, show_progress="hidden")
 
-            add.click(_add, [shown, preset] + fields, [shown] + everything + [preset], show_progress="hidden")
-            # asks first; a cancel hands the backend "" and nothing is deleted
-            delete_preset.click(_delete_preset, [preset], [preset], show_progress="hidden",
-                                _js="(name) => [name && confirm(`Delete the character preset \"${name}\"?`) ? name : '']")
-            # presets saved in the other tab (or another browser) show up the next time the list
-            # opens: refreshed as it CLOSES (and once on page load, stagehand.js). New choices make
-            # Gradio re-filter an open list by the box's text, "Empty card" -- refreshed on focus,
-            # the saved characters vanished a round-trip after the list opened.
-            preset.blur(lambda: gr.update(choices=_preset_choices()), None, [preset], show_progress="hidden")
+            add.click(_add, [shown] + fields, [shown] + everything, show_progress="hidden")
             # Undo / redo: stagehand.js writes the state to go back to here (_restore)
             restore = gr.Textbox(value="", elem_id=f"nai_{tab}_chars_restore", elem_classes=["nai-hidden"], show_label=False, container=False)
             restore.input(_restore, [restore], [shown] + everything + [manual], show_progress="hidden")
             gr.HTML(HELP)
 
-        for component in [auto, add, preset, delete_preset, restore] + ups + downs + copies + removes + saves:
+        for component in [auto, add, presets, restore] + ups + downs + copies + removes + saves + deletes:
             component.do_not_save_to_config = True  # ui-config keys collide by label
         # "True"/"False" rather than a callable key, so Send to img2img carries it too
         infotext.append((manual, "Char placement"))
@@ -1068,28 +1076,32 @@ class CharacterPrompts(scripts.Script):
             return [[(encoded.get(image[kind].get(n)), encoded.get(image[uc_kind].get(n))) for n in numbers] for image in images]
 
         regions = encode(info["numbers"])
-        # Character LoRAs (Masked / Separate pass). ponytail: the batch's first image's tags
-        # for all of it; per-image LoRA sets (wildcards rolling different LoRAs) would need a
-        # session per image.
-        loras = {}
-        tags = images[0].get("loras_hr_prompt" if hr else "loras_prompt") or {}
-        if info.get("lora", region_lora.MODES[0]) != region_lora.MODES[0] and tags:
-            clip = p.sd_model.forge_objects.clip
-            for n, own in tags.items():
-                pairs, patched, problems = region_lora.load(unet, clip, own)
-                for problem in problems:
-                    print(f"[Character Prompts] character {n} LoRA {problem}")
-                if pairs:
-                    loras[n] = pairs
-                if patched is not None:  # her text, read by her text-encoder LoRA
-                    p.sd_model.forge_objects.clip = patched
-                    try:
-                        column = encode([n])
-                    finally:
-                        p.sd_model.forge_objects.clip = clip
-                    r = info["numbers"].index(n)
-                    for row, own_row in zip(regions, column):
-                        row[r] = own_row[0]
+        # Character LoRAs (Masked / Separate pass): one owner per character and LoRA set, with
+        # the batch's images that have it (a wildcard can roll a different LoRA per image)
+        loras, owners, sets = {}, {}, {}
+        for k, image in enumerate(images):
+            for n, own in (image.get("loras_hr_prompt" if hr else "loras_prompt") or {}).items():
+                sets.setdefault((n, tuple(own)), set()).add(k)
+        if info.get("lora", region_lora.MODES[0]) == region_lora.MODES[0]:
+            sets = {}
+        clip = p.sd_model.forge_objects.clip
+        for (n, own), ks in sets.items():
+            pairs, patched, problems = region_lora.load(unet, clip, list(own))
+            for problem in problems:
+                print(f"[Character Prompts] character {n} LoRA {problem}")
+            o = (n, own)
+            if pairs:
+                loras[o] = pairs
+                owners[o] = (n, None if len(ks) == len(images) else ks)
+            if patched is not None:  # her text, read by her text-encoder LoRA
+                p.sd_model.forge_objects.clip = patched
+                try:
+                    column = encode([n])
+                finally:
+                    p.sd_model.forge_objects.clip = clip
+                r = info["numbers"].index(n)
+                for k in ks:
+                    regions[k][r] = column[k][0]
         denoiser = p.sampler.model_wrap_cfg
         session = RegionSession(
             _in_crop(p, [info["boxes"][n] for n in info["numbers"]]),
@@ -1105,7 +1117,7 @@ class CharacterPrompts(scripts.Script):
         unet.set_transformer_option(anima_hooks.REGIONS_KEY, session)
         unet.add_conditioning_modifier(session.modifier)
         if loras:
-            lora = region_lora.LoraSession(loras, session, info["lora"])
+            lora = region_lora.LoraSession(loras, session, info["lora"], owners)
             unet.set_transformer_option(region_lora.KEY, lora)
             if lora.mode == "Separate pass":
                 unet.set_model_unet_function_wrapper(lora.wrapper(unet.model_options.get("model_function_wrapper")))
@@ -1113,7 +1125,7 @@ class CharacterPrompts(scripts.Script):
         p.sd_model.forge_objects.unet = unet
         info["ran"] = True
         layout = "AI's Choice" if info["auto"] else info["manual"].lower()
-        own = f", own LoRAs ({info['lora'].lower()}) for {', '.join(map(str, loras))}" if loras else ""
+        own = f", own LoRAs ({info['lora'].lower()}) for {', '.join(sorted({str(n) for n, _ in loras}))}" if loras else ""
         print(f"[Character Prompts] {len(info['numbers'])} characters, {layout}{own}{' (hires)' if hr else ''}")
 
     def postprocess(self, p, processed, *args):

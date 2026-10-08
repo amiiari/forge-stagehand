@@ -61,24 +61,32 @@ else. Precise Reference needs two models in `models\precise_reference\` (about 2
 
 - an **On** / **Off** pill in the character's color: Off leaves the character out of the next
   image without deleting it;
-- a name;
-- a **Face** dropdown for ADetailer (leave it on auto; see below);
-- ↑ / ↓ to reorder, 💾 to save it as a preset, ⧉ to duplicate, 🗑 to delete;
-- **Prompt** and **Undesired Content** tabs.
+- a name, which is also the preset search (below);
+- ↑ / ↓ to reorder, 💾 to save it as a preset, **⋯** for the rest, 🗑 to delete;
+- **⋯** opens a row with the **Face** pick for ADetailer (leave it on auto; see below), the
+  **Overlap share %**, **⧉ Duplicate** and **Delete preset**. A dot on ⋯ means something in it
+  isn't the default;
+- **Prompt**, **Undesired Content** (a dot when it has text) and **Reference** (her own
+  reference images, with their count; see Precise Reference) tabs;
+- a small map of her place in the image, with **+** for another place.
 
 Write the scene, the style and the count tags (`2girls`, `1boy, 1girl`) in the main prompt,
-like on NovelAI. Each card describes one character, starting with `girl` or `boy`. A card can
-span several lines (appearance, outfit, proportions...); the line breaks are kept everywhere,
-PNG info included.
+like on NovelAI; switching a card off doesn't change the count, so keep it right yourself.
+Each card describes one character, starting with `girl` or `boy`: that word is also what
+the position words use ("a girl on the left"; without it, "a character on the left"). A card
+can span several lines (appearance, outfit, proportions...); the line breaks are kept
+everywhere, PNG info included.
 
 ### Presets
 
 Name a card, then **💾** saves it as a preset: its prompt and Undesired Content exactly as
-typed, line breaks included. Saving a card with the same name again updates the preset. Pick a
-preset in the list next to **+ Add character**, then click **+ Add character** to add a card
-filled with that character; **🗑** next to the list deletes the selected preset (it asks first). Presets live in
-`stagehand character presets.json` in Forge's folder, so updating or reinstalling the
-extension keeps them.
+typed, line breaks included. Saving a card with the same name again updates the preset.
+**Type in a card's name box** to find a preset, and pick it from the list: the card's prompt and
+Undesired Content are replaced, while its place, references and number stay, so swapping one
+character for another keeps the composition. Ctrl+Z undoes it. Typing a name that happens to
+match a preset doesn't fill anything; only picking it does. **⋯ → Delete preset** deletes the
+preset with the card's name (it asks first). Presets live in `stagehand character
+presets.json` in Forge's folder, so updating or reinstalling the extension keeps them.
 
 ### Positions
 
@@ -97,18 +105,18 @@ extension keeps them.
     - A lone character's dot only changes the position words ("a girl on the left"). Use
       Boxes to confine one.
 - **Reset** puts everyone back in the default columns; **Switch** swaps two characters'
-  places; **canvases** / **on image** show or hide the two kinds of surface (hide the boxes on
-  the image to click the picture under them). **Ctrl+Z / Ctrl+Y** undo and redo moves,
+  places (with just two, one ⇄ button); **on cards** / **on image** show or hide the maps on
+  the cards and the boxes over the output image (hide those to click the picture under them). **Ctrl+Z / Ctrl+Y** undo and redo moves,
   Reset, Switch and the card buttons (add, delete, ↑ ↓, duplicate), whenever you're not
   typing in a text box.
-- **More than one place for a character**: **＋** on her card adds a half-size box (or a dot,
+- **More than one place for a character**: **+** on her card's map adds a half-size box (or a dot,
   in Grid) beside her last one; drag it like any other, **×** on it removes it. Touching or
   overlapping places are drawn as one shape, the name in the biggest piece and a dot in the
   others. Every place reads the same card. For multi-angle sheets (full body on the left,
   close-up on the right, one character) and compositions where one character spans two areas.
   Want different words per view? Duplicate the card (⧉) and edit it instead. A character with
   several places gets no position words ("a girl on the left").
-- **Overlap share %** (on each card): who wins where two places overlap.
+- **Overlap share %** (in each card's ⋯): who wins where two places overlap.
   Every card starts at 50; the overlap is split in proportion, so 70 vs 30 gives 70/30 and
   80 vs 40 gives 2/3 vs 1/3. One character lying on another's lap: raise hers, lower the
   other's. A part of the image only one character has is the same at any share. The box or
@@ -157,7 +165,8 @@ When it's backwards:
 
   Either way her face in ADetailer gets only her own LoRA, and a LoRA's text-encoder part
   (when Forge recognizes it) reads only her card's text. Images record the mode
-  ("Char LoRAs"). With several images in a batch, the first image's LoRAs are used for all.
+  ("Char LoRAs"). In a batch, each image gets the LoRAs its own card text rolled (a wildcard
+  can pick a different one per image).
 - **Tag Autocomplete** (sd-webui-tagcomplete) suggests tags in each card's Prompt and Undesired
   Content boxes too. Its txt2img, img2img and negative prompt settings apply to them as to the
   main boxes.
@@ -211,17 +220,22 @@ Negative prompt: worst quality, ...
 
 ## Precise Reference
 
-**+ Add reference** adds a card (up to 4). Drop an image in, then:
+Up to 4 references in all, in two places:
 
-- **Type**: NovelAI's three. It only sets the starting Strength: 1.0 for Character and
-  Character & Style, 0.5 for Style.
-- **Strength**: how much of the reference goes in. 0 ignores the card; negative pushes away
-  from it.
+- **For the whole image**: **+ Add reference** in the References section. Whole-image
+  references work without any character cards (one character described in the main prompt).
+- **For one character**: **+ Add reference** in the **Reference** tab of her Character Prompts
+  card. It goes only into her part of the image (where her card places her), so each
+  character can have her own references. It follows her card: ↑ / ↓ take it along, ⧉ copies
+  it (while there's room), 🗑 deletes it with her. One for a character who isn't in the image
+  (a pasted image whose card is gone) waits in the References section, saying so, and is
+  skipped (console line and a note under the image).
+
+Drop an image in, then:
+
+- **Strength**: how much of the reference goes in: about 1 for a character, about 0.5 for an
+  art style. 0 ignores the card; negative pushes away from it.
 - **Fidelity**: how hard the reference is to override with the prompt.
-- **Whole image / Character N**: who the card is for. A card for a character goes only into
-  her part of the image (where her Character Prompts card places her), so each character can
-  have her own references. A card for a character who isn't in the image is skipped (console
-  line and a note under the image).
 - **Hires fix / ADetailer**: also use the card in that pass. Off (the default), it only shapes
   the first pass and the hires fix and ADetailer refine without it -- in a blind test that
   ranked best on every image. In ADetailer a character's card goes only to her own face
@@ -312,7 +326,8 @@ A prompt that already has `Character N:` lines uses those and ignores the cards.
 ```
 
 The image is base64 (a `data:` URL works too) or a file path on the machine Forge runs on.
-Type is `Character`, `Style` or `Character & Style`; strength −1 to 2; fidelity 0 to 1. `for`
+Type is `Character`, `Style` or `Character & Style` (recorded only: the UI no longer shows it,
+since it changed nothing but the starting strength); strength −1 to 2; fidelity 0 to 1. `for`
 is `Whole image` or `Character N` (N as in the character lines). The image's PNG info reports
 what was applied (`PR 1 strength: …`, `PR 1 for: Character 1`, `PR 1 hires: True`).
 

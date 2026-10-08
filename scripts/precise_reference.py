@@ -12,6 +12,7 @@ lib_stagehand/anima_hooks.py; the adapter and encoder live in adapter_runtime.py
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import uuid
@@ -33,23 +34,22 @@ from lib_stagehand.ip_adapter import IPReference, IPSession, flatten, has_image,
 anima_hooks.install()
 
 # NovelAI's three types. The adapter has one mode, and the A/B grids found no setting that
-# separates a character from its art style, so a type only picks the starting Strength.
-TYPE_STRENGTH = {"Character": 1.0, "Style": 0.5, "Character & Style": 1.0}
-REFERENCE_TYPES = tuple(TYPE_STRENGTH)
+# separates a character from its art style: a type changed nothing but the starting Strength,
+# so the UI no longer shows it. Kept as an arg and in the PNG info for API callers.
+REFERENCE_TYPES = ("Character", "Style", "Character & Style")
 # For people who've never used NovelAI: collapsed under the panel's title until asked for.
 HELP = """<details class="nai-help"><summary>How to use</summary><div>
 <ol>
-<li><b>+ Add reference</b> adds a card: an image of a character to keep (face, hair, outfit) or an art style to
-copy -- not a pose: it carries looks, not composition. Up to 4 cards, e.g. the same character from several angles.
-Your prompt still sets the scene. Cards for the whole image blend: two different characters' references there become one
-character (NovelAI's do the same) -- give each character her own cards instead (below).</li>
-<li><b>Type</b> only sets a starting Strength: 1.0 for Character and Character &amp; Style, 0.5 for Style.</li>
-<li><b>Strength:</b> how much of the reference goes in. 0 turns the card off; below 0 pushes away from it.</li>
+<li><b>+ Add reference</b> here adds a reference for the whole image: an image of a character to keep (face, hair,
+outfit) or an art style to copy -- not a pose: it carries looks, not composition. Up to 4 references in all, e.g. the
+same character from several angles. Your prompt still sets the scene.</li>
+<li><b>A character's own references</b> go in the <b>Reference</b> tab of her Character Prompts card: they only go
+into her part of the image (and her face in ADetailer), so two characters can each keep their own looks. References
+here, for the whole image, blend: two different characters become one (NovelAI's do the same).</li>
+<li><b>Strength:</b> how much of the reference goes in: about 1 for a character, about 0.5 for an art style (at 1 it
+copies the whole artwork). 0 turns the card off; below 0 pushes away from it.</li>
 <li><b>Fidelity:</b> how hard the reference is to override with your prompt. Lower it if the prompt
 (pose, outfit) isn't being followed.</li>
-<li><b>Whole image / Character N:</b> who the card is for. A character's card only goes into her part of the image
-(her Character Prompts card's place), so two characters can each have their own references. A card for a character
-who isn't in the image is skipped.</li>
 <li><b>Hires fix / ADetailer:</b> also use this card in that pass. Off: the card only shapes the first pass, which
 looked best in testing. In ADetailer, a character's card goes only to her own face. Both off by default.</li>
 </ol>
@@ -231,10 +231,60 @@ def _hook_adetailer() -> None:
 
 
 def _add_card(shown):
+    """The panel's +: a whole-image card (a target an undo left on a hidden card is reset)."""
     shown = list(shown)
+    targets = [gr.update()] * MAX_REFS
     if False in shown:
-        shown[shown.index(False)] = True
-    return [shown] + [gr.update(visible=v) for v in shown]
+        i = shown.index(False)
+        shown[i] = True
+        targets[i] = TARGETS[0]
+    return [shown] + [gr.update(visible=v) for v in shown] + targets
+
+
+EMPTY = (None, "Character", 1.0, 1.0, TARGETS[0], False, False)  # a fresh card's fields
+
+
+def _act(text, shown, *values):
+    """What a character card does to her references (stagehand.js writes it, as JSON):
+    add n -- a new card for character n; drop n -- remove hers (her card was deleted);
+    copy from to -- her references again for the duplicate, as many as fit; swap a b -- the
+    cards were reordered; targets [...] -- an undo puts them back.
+    values: every card's (image, type, strength, fidelity, for, hires, ADetailer)."""
+    shown = list(shown)
+    size = len(EMPTY)
+    cards = [list(values[i * size : (i + 1) * size]) for i in range(MAX_REFS)]
+    try:
+        action = json.loads(text)
+        op = action["op"]
+    except (ValueError, KeyError, TypeError):
+        op = None
+    target = lambda n: f"Character {int(n)}"  # noqa: E731
+    owner = lambda card: _target(card[4])  # noqa: E731
+    free = [i for i in range(MAX_REFS) if not shown[i]]
+    if op == "add" and free:
+        i = free[0]
+        shown[i], cards[i] = True, list(EMPTY[:4]) + [target(action["n"])] + list(EMPTY[5:])
+    elif op == "add":
+        gr.Warning(f"All {MAX_REFS} references are in use. Remove one first.")
+    elif op == "drop":
+        for i in range(MAX_REFS):
+            if shown[i] and owner(cards[i]) == int(action["n"]):
+                shown[i], cards[i] = False, list(EMPTY)
+    elif op == "copy":
+        hers = [i for i in range(MAX_REFS) if shown[i] and owner(cards[i]) == int(action["from"])]
+        for i, j in zip(hers, free):
+            shown[j], cards[j] = True, cards[i][:4] + [target(action["to"])] + cards[i][5:]
+        if len(hers) > len(free):
+            gr.Warning(f"Copied {len(free)} of her {len(hers)} references: {MAX_REFS} at most.")
+    elif op == "swap":
+        a, b = int(action["a"]), int(action["b"])
+        for card in cards:
+            card[4] = target(b) if owner(card) == a else target(a) if owner(card) == b else card[4]
+    elif op == "targets":
+        for i, value in enumerate(list(action["values"])[:MAX_REFS]):
+            if shown[i] and isinstance(value, str):
+                cards[i][4] = value
+    return [shown] + [gr.update(visible=v) for v in shown] + [v for card in cards for v in card]
 
 
 def _remover(i):
@@ -242,7 +292,7 @@ def _remover(i):
         shown = list(shown)
         shown[i] = False
         # back to a fresh card, so the next "+" doesn't reopen the old settings
-        return shown, gr.update(visible=False), None, "Character", 1.0, 1.0, TARGETS[0], False, False
+        return (shown, gr.update(visible=False)) + EMPTY
 
     return remove
 
@@ -258,10 +308,6 @@ def _revealer(i):
         return shown, gr.update(visible=True)
 
     return reveal
-
-
-def _type_strength(kind):
-    return gr.update(value=TYPE_STRENGTH.get(kind, 1.0))
 
 
 class PreciseReference(scripts.Script):
@@ -297,12 +343,16 @@ class PreciseReference(scripts.Script):
                 gr.HTML("", elem_classes=["nai-spacer"])  # pushes the add button to the right
                 add = gr.Button("+ Add reference", elem_classes=["nai-add"], min_width=40, scale=0)
             shown = gr.State([False] * MAX_REFS)
+            # a character card's add / delete / duplicate / reorder, from stagehand.js (_act)
+            action = gr.Textbox(value="", elem_id=f"nai_{tab}_pr_action", elem_classes=["nai-hidden"], show_label=False, container=False)
             cards = []
             buttons = [add]
             extras = []
+            every = []  # each card's fields in _act's order
 
             for i in range(MAX_REFS):
-                with gr.Group(visible=False, elem_classes=["nai-card"]) as card:
+                # stagehand.js moves a character's card into her Character Prompts card's Reference tab
+                with gr.Group(visible=False, elem_id=f"nai_{tab}_pr{i + 1}", elem_classes=["nai-card", "nai-ref-card"]) as card:
                     with gr.Row(equal_height=False):
                         image = gr.Image(
                             show_label=False,
@@ -318,22 +368,13 @@ class PreciseReference(scripts.Script):
                             min_width=140,
                         )
                         with gr.Column(scale=3, min_width=220):
-                            with gr.Row(elem_classes=["nai-card-head"]):
-                                kind = gr.Dropdown(
-                                    list(REFERENCE_TYPES),
-                                    value="Character",
-                                    show_label=False,
-                                    container=False,
-                                    elem_id=f"nai_{tab}_pr{i + 1}_type",
-                                )
-                                target = gr.Dropdown(
-                                    TARGETS,
-                                    value=TARGETS[0],
-                                    show_label=False,
-                                    container=False,
-                                    elem_id=f"nai_{tab}_pr{i + 1}_for",
-                                    elem_classes=["nai-ref-for"],
-                                )
+                            with gr.Row(elem_classes=["nai-card-head", "nai-ref-head"]):
+                                kind = gr.Dropdown(list(REFERENCE_TYPES), value="Character", show_label=False, container=False,
+                                                   elem_id=f"nai_{tab}_pr{i + 1}_type", elem_classes=["nai-hidden"])
+                                # "Whole image" or "Character N": stagehand.js shows it in her card's Reference tab
+                                target = gr.Textbox(value=TARGETS[0], show_label=False, container=False,
+                                                    elem_id=f"nai_{tab}_pr{i + 1}_for", elem_classes=["nai-hidden", "nai-ref-for"])
+                                gr.HTML("", elem_classes=["nai-spacer"])
                                 remove = gr.Button("🗑", elem_classes=["nai-icon", "nai-remove-ref"], min_width=36, scale=0)
                             strength = gr.Slider(label="Strength", minimum=-1.0, maximum=2.0, step=0.01, value=1.0)
                             fidelity = gr.Slider(label="Fidelity", minimum=0.0, maximum=1.0, step=0.01, value=1.0)
@@ -343,15 +384,13 @@ class PreciseReference(scripts.Script):
                 cards.append(card)
                 buttons.append(remove)
 
-                # .input, not .change: pasting infotext sets the type too, and .change would
-                # then overwrite the pasted strength with the type's default.
-                kind.input(fn=_type_strength, inputs=[kind], outputs=[strength], show_progress=False)
                 remove.click(fn=_remover(i), inputs=[shown], outputs=[shown, card, image, kind, strength, fidelity, target, hires, adetailer], show_progress=False)
                 image.change(fn=_revealer(i), inputs=[image, shown], outputs=[shown, card], show_progress=False)
 
                 fields = [image, kind, strength, fidelity]
                 components += fields
                 extras += [target, hires, adetailer]
+                every += [image, kind, strength, fidelity, target, hires, adetailer]
                 infotext += [
                     (image, lambda params, n=i + 1: _pasted_image(params, n)),
                     (kind, f"PR {i + 1} type"),
@@ -362,10 +401,11 @@ class PreciseReference(scripts.Script):
                     (adetailer, f"PR {i + 1} ADetailer"),
                 ]
 
-            add.click(fn=_add_card, inputs=[shown], outputs=[shown] + cards, show_progress=False)
+            add.click(fn=_add_card, inputs=[shown], outputs=[shown] + cards + extras[::EXTRA_FIELDS], show_progress=False)
+            action.input(fn=_act, inputs=[action, shown] + every, outputs=[shown] + cards + every, show_progress=False)
             gr.HTML(HELP)
             components.append(in_adetailer)
-            for component in components + extras + buttons:
+            for component in components + extras + buttons + [action]:
                 # ui-config.json keys come from a component's LABEL, so every card would
                 # collapse onto one entry -- and a saved entry overrides the code.
                 component.do_not_save_to_config = True

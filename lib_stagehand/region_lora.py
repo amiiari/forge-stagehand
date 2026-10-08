@@ -29,16 +29,37 @@ current = None  # the session of the model call in progress (anima_hooks' Block 
 
 
 class LoraSession:
-    """loras: {character number: {module: [(down [r, in], up [out, r], scale)]}}. regions: the
-    pass's RegionSession (its grid, weights and numbers)."""
+    """loras: {owner: {module: [(down [r, in], up [out, r], scale)]}}. regions: the pass's
+    RegionSession (its grid, weights, numbers and images). owners: {owner: (character number,
+    the batch's image indices that have this LoRA set, or None for all)} -- a wildcard can roll
+    a different LoRA per image. Without it, every owner is a character number, on every image."""
 
-    def __init__(self, loras, regions, mode):
+    def __init__(self, loras, regions, mode, owners=None):
         self.loras = loras
         self.regions = regions
         self.mode = mode
+        self.owners = owners or {o: (o, None) for o in loras}
         self.pass_owner = None  # Separate pass: whose LoRA this model call carries
         self.context_owner = None  # Masked: whose text the cross-attention is projecting
         self._cast = {}
+        self._rows = {}
+
+    def owner(self, n, image):
+        """Whose LoRA character n has in image `image` of the batch, or None."""
+        return next((o for o, (m, images) in self.owners.items() if m == n and (images is None or image in images)), None)
+
+    def rows(self, o, like):
+        """1 on the model call's rows (image b % batch) that have owner o's LoRA set, shaped to
+        broadcast over `like`; None when every row has it."""
+        images = self.owners[o][1]
+        if images is None:
+            return None
+        count = len(self.regions.images)
+        key = (o, like.shape[0], like.ndim, like.device, like.dtype)
+        if key not in self._rows:
+            mask = torch.tensor([float(b % count in images) for b in range(like.shape[0])], device=like.device, dtype=like.dtype)
+            self._rows[key] = mask.reshape(-1, *[1] * (like.ndim - 1))
+        return self._rows[key]
 
     def key(self):
         """What a cached k/v projection depends on, besides its text."""
@@ -64,10 +85,13 @@ class LoraSession:
         weights = self.regions.weights(y.shape[1:-1].numel(), y.device, y.dtype)
         if weights is None:
             return y
-        for n in self.loras:
-            d = self._delta(n, module, x)
-            if d is not None:
-                y = y + d * weights[self.regions.numbers.index(n) + 1].reshape(1, *y.shape[1:-1], 1)
+        for o in self.loras:
+            d = self._delta(o, module, x)
+            if d is None:
+                continue
+            d = d * weights[self.regions.numbers.index(self.owners[o][0]) + 1].reshape(1, *y.shape[1:-1], 1)
+            rows = self.rows(o, y)
+            y = y + (d if rows is None else d * rows)
         return y
 
     def latent_mask(self, n, like):
@@ -87,13 +111,15 @@ class LoraSession:
                 return apply_model(args["input"], args["timestep"], **args["c"])
 
             base = out = call()
-            for n in self.loras:
-                self.pass_owner = n
+            for o in self.loras:
+                self.pass_owner = o
                 try:
                     other = call()
                 finally:
                     self.pass_owner = None
-                out = out + self.latent_mask(n, base) * (other - base)
+                mask = self.latent_mask(self.owners[o][0], base)
+                rows = self.rows(o, base)
+                out = out + (mask if rows is None else mask * rows) * (other - base)
             return out
 
         return run

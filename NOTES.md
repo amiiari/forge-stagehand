@@ -276,6 +276,12 @@ Anima TE keys as `lora_te_layers_*`; a LoRA saved as `lora_te1_layers_*` (Sally 
 has its TE half ignored everywhere, Forge's own loading included. A renamed copy proved the
 swap works (183k pixels changed).
 
+Batches: each image's own tags count. The session's owners are (character, LoRA set) with
+the batch's images that rolled that set; a model-call row b is image b % batch (cond and
+uncond rows alike, as `attend` reads them), and an owner's delta / Separate-pass blend is
+masked to its rows. In practice Dynamic Prompts picks one variant for the whole batch when
+its variants hold LoRA tags (main prompt too), so this mostly guards Set Queue and API callers.
+
 ADetailer: in the per-character modes the face prompt carries her LoRA tags, so Forge applies
 them whole to her face crop, and only hers. Only plain LoRA (no DoRA, LoKr, LoCon mid) on the
 blocks' Linears is applied; anything else is skipped with a console line.
@@ -411,6 +417,22 @@ ranked shuffled; `stagehand proof\Precise Reference\per-character blind test`, r
   without Character Prompts.
 
 So the defaults stay: per-character cards, first pass only.
+
+### References on the character cards (2026-10-08)
+
+A character's references used to be a "for: Character N" dropdown in the References section.
+That number was a card slot, so ↑ / ↓ handed the reference to whoever moved into the slot,
+and the list never showed names. Now they sit in her card's **Reference** tab. The backend and
+the arg layout are unchanged (still 4 cards with `for`); only where a card is drawn moved:
+
+- `for` is a hidden textbox, and stagehand.js `placeRefs` puts each card in the Reference tab
+  of the character its `for` names while her card is shown, else back in the section (with a
+  note when it names a missing character: it's skipped at generation, as before).
+- Card actions reach the references through one hidden textbox and `_act` (add for n, drop n
+  on delete, copy on duplicate, swap on ↑ / ↓, targets on undo). The undo snapshot carries the
+  targets, so Ctrl+Z after ↑ puts them back too; images deleted with a card don't come back.
+- Type is gone from the UI: it only set the starting Strength (1.0 / 0.5). Still an arg and in
+  the PNG info.
 
 ### History
 

@@ -79,17 +79,6 @@
     min-width: 0 !important;
 }
 
-/* the preset picker next to + Add character */
-.nai-panel .nai-head > .nai-preset {
-    flex: 0 0 auto !important;
-    width: 180px !important;
-    min-width: 0 !important;
-}
-
-.nai-panel .nai-preset input {
-    font-size: 13px !important;
-}
-
 .nai-panel button.nai-add {
     background: var(--nai-gold) !important;
     color: var(--nai-bg) !important;
@@ -161,11 +150,144 @@
     border-left: 3px solid var(--nai-char) !important;
 }
 
-/* the overlap share: a short slider under the card, not a full-width bar per card */
+/* ⋯: the card's less used controls, in a row under its header while open */
+.nai-panel .nai-char-card .nai-more {
+    display: none !important;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 4px 6px !important;
+}
+
+.nai-panel .nai-char-card.nai-more-open .nai-more {
+    display: flex !important;
+}
+
+.nai-panel .nai-char-card.nai-more-open button.nai-more-btn,
+.nai-panel button.nai-more-btn:hover {
+    color: var(--nai-gold) !important;
+}
+
+/* something in ⋯ isn't the default: a dot, so it isn't out of sight */
+.nai-panel button.nai-more-btn.nai-set::after {
+    content: "";
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--nai-char);
+}
+
+.nai-panel button.nai-more-btn {
+    position: relative;
+}
+
+.nai-panel .nai-char-card.nai-more-open .nai-more {
+    flex-wrap: nowrap !important;
+}
+
+/* Gradio wraps the Face pick and the share in one form block, stacked: side by side here */
+.nai-panel .nai-char-card .nai-more > .form {
+    flex: 0 0 auto !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    align-items: center;
+    gap: 10px;
+    width: auto !important;
+    min-width: 0 !important;
+    background: transparent !important;
+    border: none !important;
+}
+
 .nai-panel .nai-char-card .nai-share {
-    max-width: 340px;
-    padding-top: 2px !important;
-    padding-bottom: 6px !important;
+    flex: 0 0 auto !important;
+    width: auto !important;
+    min-width: 0 !important;
+    padding: 0 !important;
+    background: transparent !important;
+    border: none !important;
+}
+
+.nai-panel .nai-char-card .nai-share label {
+    display: flex !important;
+    align-items: center;
+    gap: 8px;
+}
+
+.nai-panel .nai-char-card .nai-share label > span {
+    margin: 0 !important;
+    color: var(--nai-muted);
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.nai-panel .nai-char-card .nai-share input {
+    width: 64px !important;
+    height: 28px;
+    padding: 2px 6px !important;
+}
+
+.nai-panel button.nai-small {
+    background: transparent !important;
+    border: 1px solid var(--nai-border) !important;
+    border-radius: 999px !important;
+    color: var(--nai-muted) !important;
+    font-size: 12px;
+    height: 28px;
+    flex: 0 0 auto !important;
+    min-width: max-content !important;
+    padding: 0 10px !important;
+}
+
+.nai-panel button.nai-small:hover {
+    border-color: var(--nai-gold-deep) !important;
+    color: var(--nai-gold) !important;
+}
+
+/* a dot on Undesired Content when it has text, the count on Reference (stagehand.js) */
+.nai-panel .nai-char-tabs button[data-badge]:not([data-badge=""])::after {
+    content: attr(data-badge);
+    margin-left: 6px;
+    color: var(--nai-char);
+    font-weight: 700;
+}
+
+/* a character's references, in her Reference tab */
+.nai-panel .nai-ref-slot {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.nai-panel .nai-ref-slot:empty + .nai-ref-add {
+    margin-top: 2px;
+}
+
+.nai-panel button.nai-ref-add {
+    margin-top: 6px;
+    background: transparent;
+    border: 1px dashed var(--nai-border);
+    border-radius: 999px;
+    color: var(--nai-muted);
+    font-size: 12px;
+    height: 28px;
+    padding: 0 12px;
+    cursor: pointer;
+}
+
+.nai-panel button.nai-ref-add:hover {
+    border-color: var(--nai-char);
+    color: var(--nai-char);
+}
+
+/* a reference for a character who isn't in the image: back in References, saying so */
+.nai-panel .nai-ref-card[data-orphan]:not([data-orphan=""])::before {
+    content: attr(data-orphan);
+    display: block;
+    padding: 2px 6px 4px;
+    color: #ffb36b;
+    font-size: 12px;
 }
 
 /* Tag Autocomplete's suggestion list hangs below the prompt box: the card mustn't clip it
@@ -381,6 +503,29 @@
     position: relative;
     padding-right: calc(var(--nai-mini-w, 200px) + 18px) !important;
     min-height: calc(var(--nai-mini-h, 200px) + 14px);
+}
+
+/* + on a card's map: another place for that character */
+.nai-mini button.nai-add-place {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    z-index: 5;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 1px solid var(--nai-border);
+    border-radius: 50%;
+    background: var(--nai-card);
+    color: var(--nai-muted);
+    font-size: 14px;
+    line-height: 17px;
+    cursor: pointer;
+}
+
+.nai-mini button.nai-add-place:hover {
+    border-color: var(--nai-char);
+    color: var(--nai-char);
 }
 
 .nai-mini {
@@ -634,6 +779,12 @@
 
 .nai-panel .nai-tools-row .nai-toggle {
     color: var(--nai-muted);
+}
+
+/* two characters: nothing to pick, Switch swaps them */
+.nai-panel .nai-switch.nai-switch-two select,
+.nai-panel .nai-switch.nai-switch-two .nai-switch-arrow {
+    display: none;
 }
 
 .nai-panel .nai-tools-row .nai-toggle.nai-on {

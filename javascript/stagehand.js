@@ -10,7 +10,9 @@
 //   (NovelAI V4.5's 5x5 grid: drag a dot to a cell; "C3"). The result lands in the card's
 //   hidden position field; an empty one is the default column (the old AI's Choice);
 // - Reset / Switch / the two surface toggles in the Characters header; Ctrl+Z / Ctrl+Y undo
-//   and redo position and card changes (outside text boxes).
+//   and redo position and card changes (outside text boxes);
+// - a card's name box searches the presets; its ⋯ opens the row with the less used controls;
+// - Precise Reference's cards for a character live in her card's Reference tab.
 (() => {
     const TABS = [["txt2img", "t2i"], ["img2img", "i2i"]];
     const MAX = 6;
@@ -597,6 +599,16 @@
             if (!mini) {
                 mini = document.createElement("div");
                 mini.className = "nai-surface nai-mini";
+                // another place for this character (trackCards makes it an undo step)
+                const more = document.createElement("button");
+                more.type = "button";
+                more.className = "nai-add-place";
+                more.textContent = "+";
+                more.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    addPlace(id, n);
+                });
+                mini.appendChild(more);
                 card.appendChild(mini);
             }
             if (mini.style.width !== `${w}px` || mini.style.height !== `${h}px`) Object.assign(mini.style, {width: `${w}px`, height: `${h}px`});
@@ -615,7 +627,7 @@
         row.innerHTML = '<button type="button" class="nai-tool nai-reset">↺ Reset</button>'
             + '<span class="nai-switch"><select class="nai-switch-a"></select><span class="nai-switch-arrow">⇄</span>'
             + '<select class="nai-switch-b"></select><button type="button" class="nai-tool nai-switch-go">Switch</button></span>'
-            + '<button type="button" class="nai-toggle" data-what="canvases">▣ canvases</button>'
+            + '<button type="button" class="nai-toggle" data-what="canvases">▣ on cards</button>'
             + '<button type="button" class="nai-toggle" data-what="image">▣ on image</button>';
         host.appendChild(row);
         row.querySelector(".nai-reset").addEventListener("click", () => {
@@ -655,11 +667,14 @@
             button.classList.toggle("nai-on", on);
             if (button.getAttribute("aria-pressed") !== String(on)) button.setAttribute("aria-pressed", String(on));
         });
-        // the switch lists the characters as they are; a pick that's gone falls back to 1st / 2nd
+        // the switch lists the characters as they are; a pick that's gone falls back to 1st / 2nd.
+        // With just two there's nothing to pick: one ⇄ button (style.css hides the lists).
         const chars = characters(id);
         const options = chars.map((c) => `<option value="${c.n}">${c.label.replace(/[&<>"]/g, (ch) => `&#${ch.charCodeAt(0)};`)}</option>`).join("");
         const sw = row.querySelector(".nai-switch");
         sw.style.display = chars.length >= 2 ? "" : "none";
+        sw.classList.toggle("nai-switch-two", chars.length === 2);
+        setText(row.querySelector(".nai-switch-go"), chars.length === 2 ? "⇄ Switch" : "Switch");
         ["a", "b"].forEach((which, i) => {
             const select = row.querySelector(`.nai-switch-${which}`);
             if (select.dataset.options !== options) {
@@ -668,6 +683,7 @@
                 select.innerHTML = options;
                 select.value = chars.some((c) => String(c.n) === kept) ? kept : String(chars[i]?.n ?? "");
             }
+            if (chars.length === 2 && select.value !== String(chars[i].n)) select.value = String(chars[i].n);
         });
     }
 
@@ -693,6 +709,8 @@
             out[p + "face"] = card?.querySelector(".nai-char-face input")?.value || FACE_AUTO;
             out[p + "share"] = Number(field(`nai_${id}_char${n}_share`)?.value ?? SHARE);
         }
+        // who each reference is for: reordering cards moves their references along
+        out["pr.targets"] = JSON.stringify(refTargets(id));
         return out;
     }
 
@@ -736,6 +754,7 @@
     }
 
     function restore(id, values) {
+        if ("pr.targets" in values) prAction(id, {op: "targets", values: JSON.parse(values["pr.targets"])});
         const state = {...snapshot(id), ...values};
         const cards = [];
         for (let n = 1; n <= MAX; n++) {
@@ -774,8 +793,138 @@
     // the card buttons and the Boxes / Grid switch are actions too
     function trackCards(id) {
         el(`nai_${id}_chars`)?.addEventListener("click", (e) => {
-            if (e.target.closest?.(".nai-add, .nai-remove, .nai-up, .nai-down, .nai-copy, .nai-add-place, .nai-char-on, .nai-manual input")) track(id);
+            if (e.target.closest?.(".nai-add, .nai-remove, .nai-up, .nai-down, .nai-copy, .nai-add-place, .nai-char-on, .nai-manual input, .nai-ref-add")) track(id);
+            const n = Number(e.target.closest?.(".nai-char-card")?.id.match(/_char(\d+)$/)?.[1]);
+            if (!n) return;
+            // her references go where she goes (precise_reference.py's _act)
+            if (e.target.closest(".nai-up") && n > 1) prAction(id, {op: "swap", a: n, b: n - 1});
+            if (e.target.closest(".nai-down") && n < MAX) prAction(id, {op: "swap", a: n, b: n + 1});
+            if (e.target.closest(".nai-remove")) prAction(id, {op: "drop", n});
+            if (e.target.closest(".nai-ref-add")) prAction(id, {op: "add", n});
+            if (e.target.closest(".nai-copy")) copyRefsAfter(id, n);
+            if (e.target.closest(".nai-more-btn")) e.target.closest(".nai-char-card").classList.toggle("nai-more-open");
         }, true);
+    }
+
+    // ------------------------------------------------------------------ references on the cards
+    const shownCard = (node) => !!node && getComputedStyle(node).display !== "none";
+    const refTargets = (id) => [1, 2, 3, 4].map((i) => field(`nai_${id}_pr${i}_for`)?.value ?? "Whole image");
+    const refOwner = (value) => Number(/^\s*(?:Character )?(\d+)\s*$/.exec(value || "")?.[1]) || null;
+
+    function prAction(id, action) {
+        const input = field(`nai_${id}_pr_action`);
+        // no reference for a character (most of the time): nothing to move, no round trip
+        if (!input || (action.op !== "add" && action.op !== "targets" && !refTargets(id).some(refOwner))) return;
+        setValue(input, JSON.stringify({...action, at: Date.now()}));
+    }
+
+    // ⧉ adds the copy through the server; her references follow once the new card shows
+    function copyRefsAfter(id, from) {
+        const before = new Set([...Array(MAX)].map((_, k) => k + 1).filter((k) => shownCard(el(`nai_${id}_char${k}`))));
+        const started = Date.now();
+        const look = setInterval(() => {
+            const fresh = [...Array(MAX)].map((_, k) => k + 1).find((k) => !before.has(k) && shownCard(el(`nai_${id}_char${k}`)));
+            if (fresh || Date.now() - started > 4000) clearInterval(look);
+            if (fresh && refTargets(id).some((t) => refOwner(t) === from)) prAction(id, {op: "copy", from, to: fresh});
+        }, 150);
+    }
+
+    // Each reference card sits where its target says: in that character's Reference tab while
+    // her card is shown, else in the References section (one for a character who isn't there
+    // says so: it's skipped at generation).
+    const homes = {};
+    function placeRefs(id) {
+        const on = featureOn(id, "pr");
+        for (let i = 1; i <= 4; i++) {
+            const card = el(`nai_${id}_pr${i}`);
+            if (!card) continue;
+            if (!homes[`${id}${i}`]) {
+                const anchor = document.createComment(`reference ${i}`);
+                card.before(anchor);
+                homes[`${id}${i}`] = anchor;
+            }
+            const n = refOwner(field(`nai_${id}_pr${i}_for`)?.value);
+            const owner = n && el(`nai_${id}_char${n}`);
+            const slot = on && shownCard(owner) ? owner.querySelector(".nai-ref-slot") : null;
+            if (slot && card.parentElement !== slot) slot.appendChild(card);
+            if (!slot && card.previousSibling !== homes[`${id}${i}`]) homes[`${id}${i}`].after(card);
+            const note = n && !slot ? `for Character ${n}, who isn't in the image: skipped` : "";
+            if (card.dataset.orphan !== note) card.dataset.orphan = note;
+        }
+    }
+
+    // ------------------------------------------------------------------ the cards' small things
+    const presetsOf = (id) => {
+        try {
+            return JSON.parse(field(`nai_${id}_chars_presets`)?.value || "{}");
+        } catch (e) {
+            return {};
+        }
+    };
+
+    // The name box is the preset search: a native list of every preset under it; picking one
+    // (not typing a name that happens to match) replaces the card's text, as one undo step.
+    function presetSearch(id) {
+        const panel = el(`nai_${id}_chars`);
+        if (!panel) return;
+        const presets = presetsOf(id);
+        let list = panel.querySelector(":scope > datalist");
+        if (!list) {
+            list = document.createElement("datalist");
+            list.id = `nai_${id}_preset_names`;
+            panel.appendChild(list);
+        }
+        const names = Object.keys(presets).sort((a, b) => a.localeCompare(b, undefined, {sensitivity: "base"}));
+        const key = JSON.stringify(names);
+        if (list.dataset.key !== key) {
+            list.dataset.key = key;
+            list.replaceChildren(...names.map((name) => Object.assign(document.createElement("option"), {value: name})));
+        }
+        for (let n = 1; n <= MAX; n++) {
+            const card = el(`nai_${id}_char${n}`);
+            const input = card?.querySelector(".nai-char-name input");
+            if (!input) continue;
+            if (input.getAttribute("list") !== list.id) input.setAttribute("list", list.id);
+            if (!input.dataset.search) {
+                input.dataset.search = "1";
+                input.dataset.last = input.value;
+                input.addEventListener("focus", () => (input.dataset.last = input.value));
+                input.addEventListener("input", (e) => {
+                    const preset = presetsOf(id)[input.value];
+                    const picked = preset && (!e.inputType || e.inputType === "insertReplacementText");
+                    if (picked) {
+                        track(id);
+                        hist(id).pending.before[`c${n}.name`] = input.dataset.last;
+                        setValue(field(`nai_${id}_char${n}_prompt`), preset.prompt || "");
+                        setValue(field(`nai_${id}_char${n}_uc`), preset.uc || "");
+                    }
+                    input.dataset.last = input.value;
+                });
+            }
+            // ⋯'s Delete preset only for a card named like a saved preset
+            const del = card.querySelector(".nai-delete-preset");
+            if (del) del.style.display = input.value.trim() in presets ? "" : "none";
+        }
+    }
+
+    // A dot on Undesired Content when it has text, the count on Reference, and a dot on ⋯ when
+    // something in it isn't the default -- so nothing set is out of sight.
+    function cardBadges(id) {
+        for (let n = 1; n <= MAX; n++) {
+            const card = el(`nai_${id}_char${n}`);
+            if (!shownCard(card)) continue;
+            const uc = (field(`nai_${id}_char${n}_uc`)?.value || "").trim() ? "•" : "";
+            const refsShown = [...card.querySelectorAll(".nai-ref-slot > .nai-ref-card")].filter(shownCard).length;
+            for (const tab of card.querySelectorAll(".nai-char-tabs button[role=tab], .nai-char-tabs .tab-nav > button")) {
+                const text = tab.textContent;
+                const badge = text.startsWith("Undesired") ? uc : text.startsWith("Reference") ? (refsShown ? String(refsShown) : "") : null;
+                if (badge !== null && tab.dataset.badge !== badge) tab.dataset.badge = badge;
+                if (text.startsWith("Reference")) tab.style.display = featureOn(id, "pr") ? "" : "none";
+            }
+            const face = card.querySelector(".nai-char-face input")?.value || FACE_AUTO;
+            const share = Number(field(`nai_${id}_char${n}_share`)?.value ?? SHARE);
+            card.querySelector(".nai-more-btn")?.classList.toggle("nai-set", face !== FACE_AUTO || share !== SHARE);
+        }
     }
 
     // Tag Autocomplete (when installed) only finds the main prompt boxes, so the cards' boxes
@@ -813,24 +962,25 @@
     function tooltips(id) {
         const tips = {
             ".nai-char-on": "Switch this character off to leave it out of the next image without deleting it",
-            ".nai-char-name": "Name (optional): shown in the image's PNG info and on its position box; a preset is saved under it",
+            ".nai-char-name": "Name (optional): shown in the image's PNG info and on its position box; a preset is saved under it. Type to find a preset: picking one replaces this card's text (Ctrl+Z undoes it)",
             ".nai-char-face": "ADetailer: which detected face gets this character's prompt. auto matches them by position",
             ".nai-save-preset": "Save this character as a preset under its name (saving again updates it). Newlines are kept.",
-            ".nai-preset": "Character presets: pick one, then + Add character adds a card filled with it",
-            ".nai-delete-preset": "Delete the selected preset",
+            ".nai-delete-preset": "Delete the saved preset with this card's name (asks first)",
+            ".nai-more-btn": "More: ADetailer face, overlap share, duplicate, delete preset (a dot: something there isn't the default)",
+            ".nai-share": "Where two places overlap, they split it in proportion: 70 vs 30 gives 70/30. 50 each by default",
+            ".nai-ref-add": "A reference image for this character only: her part of the image, and her face in ADetailer",
             ".nai-up": "Move this character up (earlier = further left in the default columns)",
             ".nai-down": "Move this character down (later = further right in the default columns)",
-            ".nai-copy": "Duplicate this character",
+            ".nai-copy": "Duplicate this character (her references too, while there's room for them)",
             ".nai-add-place": "Another place for this character (the same card in each): multi-angle sheets, complex compositions. × on a place removes it",
             ".nai-remove": "Delete this character",
             ".nai-remove-ref": "Remove this reference",
-            ".nai-ref-for": "Who this reference is for: the whole image, or one Character Prompts card (only her part of the image, and her face in ADetailer)",
             ".nai-ref-hires": "Also use this reference in the hires fix pass. Off: it only shapes the first pass (looked best in testing)",
             ".nai-ref-adetailer": "Also use this reference in ADetailer's face pass. A character's reference goes only to her own face",
             [`#nai_${id}_chars_manual`]: "Boxes: drag and resize a box per character. Grid: NovelAI's 5x5 grid, a dot where each character's head goes",
             ".nai-reset": "Everyone back in the default columns, left to right in card order (Ctrl+Z undoes it)",
             ".nai-switch": "Swap two characters' places",
-            ".nai-toggle[data-what=canvases]": "Show or hide the small canvas beside each character",
+            ".nai-toggle[data-what=canvases]": "Show or hide the small map beside each character",
             ".nai-toggle[data-what=image]": "Show or hide the boxes over the output image (hide them to click the picture)",
         };
         const box = el(`nai_${id}_stagehand`);
@@ -848,12 +998,6 @@
             el(`nai_${id}_chars_manual`)?.querySelectorAll("input[type=radio]").forEach((radio) => {
                 radio.addEventListener("change", () => radio.checked && convert(id, radio.value));
             });
-            for (let n = 1; n <= MAX; n++) {
-                el(`nai_${id}_char${n}`)?.querySelector(".nai-add-place")?.addEventListener("click", () => addPlace(id, n));
-            }
-            // the preset list is refreshed on blur (character_prompts.py): once now, so the first
-            // open isn't the list as it was when Forge started
-            el(`nai_${id}_chars_preset`)?.querySelector("input")?.dispatchEvent(new Event("blur"));
         }
         undoKeys();
         setInterval(() => TABS.forEach(([, id]) => settle(id)), 100);
@@ -863,7 +1007,10 @@
             TABS.forEach(([tab, id]) => {
                 unmerge(tab, id);
                 sync(id);
+                placeRefs(id);
                 render(tab, id);
+                presetSearch(id);
+                cardBadges(id);
                 tooltips(id);
             });
             attachAutocomplete();

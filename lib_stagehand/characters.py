@@ -363,10 +363,10 @@ class RegionSession:
             self._lengths = (key, last.clamp(min=1).tolist())
         return self._lengths[1]
 
-    def _char_kv(self, module, tokens, like, lora=None, number=None):
-        """Character `number`'s k/v; with per-character LoRAs (Masked) her own text gets hers."""
+    def _char_kv(self, module, tokens, like, lora=None, owner=None):
+        """A character's k/v; with per-character LoRAs (Masked) her own text gets hers (owner)."""
         if lora is not None:
-            lora.context_owner = number
+            lora.context_owner = owner
         try:
             key = (id(module), id(tokens), like.device, like.dtype, lora.key() if lora is not None else None)
             if key not in self._kv:
@@ -405,7 +405,8 @@ class RegionSession:
                 tokens = pick(positive if b in cond else negative, step)
                 if tokens is None:
                     continue
-                k_char, v_char = self._char_kv(module, tokens, context, lora, self.numbers[r - 1] if self.numbers else None)
+                owner = lora.owner(self.numbers[r - 1], b % images) if lora is not None and self.numbers else None
+                k_char, v_char = self._char_kv(module, tokens, context, lora, owner)
                 rows.append(b)
                 if self.whole:
                     keys.append(k_char.to(k))

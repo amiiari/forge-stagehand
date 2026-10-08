@@ -242,18 +242,42 @@ async def check_reference(page, image):
     assert "PR 1 image:" in info, f"the reference wasn't applied (no 'PR 1 image' in the PNG info):\n{info}"
     print("ok  a reference dropped into a card is applied, and its file path is in the PNG info")
 
-    # for character 2 only (check_paste left two), and in ADetailer
-    await page.js("gradioApp().querySelector('#nai_t2i_pr1_for input').dispatchEvent(new Event('focus'))")
-    await page.js("gradioApp().querySelector('#nai_t2i_pr1_for input').click()")
-    found = "Array.from(gradioApp().querySelectorAll('#nai_t2i_pr1_for li')).find(li => li.textContent.replace('✓', '').trim() === 'Character 2')"
-    assert await page.wait(f"!!{found}", 10), "Character 2 isn't in the card's For list"
-    await page.js(f"{found}.dispatchEvent(new MouseEvent('mousedown', {{bubbles: true}}))")
-    await page.js("gradioApp().querySelector('#nai_t2i_pr1_adetailer input').click()")
+    # character 2's own (check_paste left two), from her card's Reference tab, in ADetailer
+    await page.js("gradioApp().querySelector('#nai_t2i_char2 .nai-ref-add').click()")
+    in_tab = "!!gradioApp().querySelector('#nai_t2i_char2 .nai-ref-slot #nai_t2i_pr2')"
+    assert await page.wait(in_tab, 10), "+ Add reference in her Reference tab didn't put a card there"
+    assert await page.js("gradioApp().querySelector('#nai_t2i_pr2_for textarea, #nai_t2i_pr2_for input').value") == "Character 2"
+    await page.upload("#nai_t2i_pr2_image input[type=file]", image)
+    assert await page.wait("!!gradioApp().querySelector('#nai_t2i_pr2_image img')", 20), "her reference never showed in its card"
+    await page.js("gradioApp().querySelector('#nai_t2i_pr2_adetailer input').click()")
     await asyncio.sleep(1)
     info = await page.generate()
-    assert "PR 1 for: Character 2" in info and "PR 1 ADetailer: True" in info and "PR 1 hires: False" in info, \
-        f"the card's For / ADetailer didn't reach the PNG info:\n{info}"
-    print("ok  a reference for one character, ticked for ADetailer, is recorded as such")
+    assert "PR 2 for: Character 2" in info and "PR 2 ADetailer: True" in info and "PR 2 hires: False" in info, \
+        f"her reference's For / ADetailer didn't reach the PNG info:\n{info}"
+    assert "PR 1 for" not in info, "the whole-image reference picked up a character"
+    print("ok  a character's reference from her Reference tab, ticked for ADetailer, is recorded as hers")
+
+    # reordering the cards takes her reference along; deleting her card deletes it
+    await page.js("gradioApp().querySelector('#nai_t2i_char2 .nai-up').click()")
+    assert await page.wait("!!gradioApp().querySelector('#nai_t2i_char1 .nai-ref-slot #nai_t2i_pr2')", 10), "her reference didn't follow ↑"
+    assert await page.js("gradioApp().querySelector('#nai_t2i_pr2_for textarea, #nai_t2i_pr2_for input').value") == "Character 1"
+    await asyncio.sleep(1)
+    await key(page, "z")
+    assert await page.wait("!!gradioApp().querySelector('#nai_t2i_char2 .nai-ref-slot #nai_t2i_pr2')", 10), "Ctrl+Z after ↑ left her reference behind"
+    await key(page, "y")
+    assert await page.wait("!!gradioApp().querySelector('#nai_t2i_char1 .nai-ref-slot #nai_t2i_pr2')", 10), "Ctrl+Y after ↑ left her reference behind"
+    # ⧉ (in ⋯) copies her reference to the copy
+    await page.js("gradioApp().querySelector('#nai_t2i_char1 .nai-more-btn').click()")
+    await page.js("gradioApp().querySelector('#nai_t2i_char1 .nai-copy').click()")
+    assert await page.wait("!!gradioApp().querySelector('#nai_t2i_char3 .nai-ref-slot #nai_t2i_pr3')", 10), "⧉ didn't copy her reference"
+    assert await page.wait("!!gradioApp().querySelector('#nai_t2i_pr3_image img')", 10), "the copied reference has no image"
+    await page.js("gradioApp().querySelector('#nai_t2i_char3 .nai-remove').click()")
+    assert await page.wait("getComputedStyle(gradioApp().querySelector('#nai_t2i_pr3')).display === 'none'", 10)
+    await page.js("gradioApp().querySelector('#nai_t2i_char1 .nai-remove').click()")
+    assert await page.wait("getComputedStyle(gradioApp().querySelector('#nai_t2i_pr2')).display === 'none'", 10), \
+        "deleting her card left her reference"
+    assert await page.js("getComputedStyle(gradioApp().querySelector('#nai_t2i_pr1')).display !== 'none'"), "the whole-image one went too"
+    print("ok  her reference follows ↑ / ↓ (and their undo), is copied by ⧉, and goes with her card")
 
 
 PRESET_NAME = "stagehand test preset"
@@ -269,16 +293,14 @@ def saved_presets():
         return {}
 
 
-async def pick_preset(page, name):
-    await page.js("gradioApp().querySelector('#nai_t2i_chars_preset input').dispatchEvent(new Event('focus'))")
-    await page.js("gradioApp().querySelector('#nai_t2i_chars_preset input').click()")
-    found = f"Array.from(gradioApp().querySelectorAll('#nai_t2i_chars_preset li')).find(li => li.textContent.replace('✓', '').trim() === {json.dumps(name)})"
-    assert await page.wait(f"!!{found}", 10), f"{name!r} isn't in the preset list"
-    # still there a round-trip later: new choices re-filter an open list by the box's text
-    # ("Empty card"), which emptied it when the list was refreshed on focus
-    await asyncio.sleep(1.5)
-    assert await page.js(f"!!{found}"), f"{name!r} vanished from the open preset list"
-    await page.js(f"{found}.dispatchEvent(new MouseEvent('mousedown', {{bubbles: true}}))")
+async def pick_preset(page, n, name):
+    """Picks a preset in card n's name box, as choosing it from the browser's list does."""
+    name_box = f"gradioApp().querySelector('#nai_t2i_char{n} .nai-char-name input')"
+    await page.js(f"{name_box}.focus()")
+    listed = f"Array.from(gradioApp().querySelectorAll('#' + {name_box}.getAttribute('list') + ' option')).some(o => o.value === {json.dumps(name)})"
+    assert await page.wait(listed, 10), f"{name!r} isn't in the name box's preset list"
+    await page.js(f"(() => {{ const i = {name_box}; i.value = {json.dumps(name)}; "
+                  "i.dispatchEvent(new InputEvent('input', {bubbles: true, inputType: 'insertReplacementText'})); })()")
     await asyncio.sleep(1)
 
 
@@ -297,20 +319,26 @@ async def check_presets(page):
             break
     assert saved_presets().get(PRESET_NAME, {}).get("prompt") == PRESET_TEXT, "💾 didn't save the card with its line breaks"
 
-    await pick_preset(page, PRESET_NAME)
     await page.js("gradioApp().querySelector('#nai_t2i_chars .nai-add').click()")
+    assert await page.wait("getComputedStyle(gradioApp().querySelector('#nai_t2i_char2')).display !== 'none'", 10)
+    await asyncio.sleep(1.5)
+    await page.type("#nai_t2i_char2_prompt textarea", "girl, to be replaced")
+    await pick_preset(page, 2, PRESET_NAME)
     assert await page.wait(f"(gradioApp().querySelector('#nai_t2i_char2_prompt textarea') || {{}}).value === {json.dumps(PRESET_TEXT)}", 15), \
-        "+ Add character with a preset picked didn't fill the new card (line breaks included)"
+        "picking a preset in the name box didn't fill the card (line breaks included)"
+    await key(page, "z")
+    assert await page.wait("(gradioApp().querySelector('#nai_t2i_char2_prompt textarea') || {}).value === 'girl, to be replaced'", 10), \
+        "Ctrl+Z didn't take the preset back"
 
-    await pick_preset(page, PRESET_NAME)
+    await page.js("gradioApp().querySelector('#nai_t2i_char1 .nai-more-btn').click()")
     await page.js("window.confirm = () => true")
-    await page.js("gradioApp().querySelector('#nai_t2i_chars .nai-delete-preset').click()")
+    await page.js("gradioApp().querySelector('#nai_t2i_char1 .nai-delete-preset').click()")
     for _ in range(20):
         await asyncio.sleep(0.5)
         if PRESET_NAME not in saved_presets():
             break
     assert PRESET_NAME not in saved_presets(), "🗑 didn't delete the preset"
-    print("ok  presets: 💾 saves a card with its line breaks, + adds it back, 🗑 deletes it")
+    print("ok  presets: 💾 saves a card with its line breaks, the name box fills a card with it (Ctrl+Z undoes), ⋯ deletes it")
 
 
 def drop_test_preset():
