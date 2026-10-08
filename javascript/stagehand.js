@@ -487,6 +487,9 @@
 
     // Draws characters on a surface: everyone (the overlay) or one (`only`, a card's canvas).
     // Elements are keyed, so the one under the pointer survives every redraw.
+    // the place last clicked: Delete / Backspace removes it while its character has another (deleteKey)
+    let picked = null;
+
     function drawSurface(surface, id, chars, grid, only) {
         surface.classList.toggle("nai-grid", grid);
         let svg = surface.querySelector(":scope > svg");
@@ -520,7 +523,12 @@
                     div.innerHTML = '<span class="nai-pos-label"></span><span class="nai-pos-mark"></span>'
                         + (j ? remove : "") + (grid ? "" : HANDLES.map((h) => `<span class="nai-pos-h" data-dir="${h}"></span>`).join(""));
                     div.addEventListener("pointerdown", (e) => {
-                        const now = shapesOf(id, c, manualOf(id) === "Grid", characters(id).findIndex((x) => x.n === c.n), characters(id).length)[j];
+                        const mine = shapesOf(id, c, manualOf(id) === "Grid", characters(id).findIndex((x) => x.n === c.n), characters(id).length);
+                        if (mine.length > 1) {
+                            picked = {id, n: c.n, j};
+                            div.classList.add("nai-pos-picked");
+                        }
+                        const now = mine[j];
                         if (now) startDrag(e, surface, id, c.n, j, grid ? "dot" : e.target.dataset.dir || "move", now);
                     });
                     div.querySelector(".nai-pos-remove")?.addEventListener("click", (e) => {
@@ -624,7 +632,7 @@
         if (!host || host.querySelector(".nai-tools-row")) return;
         const row = document.createElement("span");
         row.className = "nai-tools-row";
-        row.innerHTML = '<button type="button" class="nai-tool nai-reset">↺ Reset</button>'
+        row.innerHTML = '<button type="button" class="nai-tool nai-reset">↺ Reset boxes</button>'
             + '<span class="nai-switch"><select class="nai-switch-a"></select><span class="nai-switch-arrow">⇄</span>'
             + '<select class="nai-switch-b"></select><button type="button" class="nai-tool nai-switch-go">Switch</button></span>'
             + '<button type="button" class="nai-toggle" data-what="canvases">▣ on cards</button>'
@@ -778,15 +786,38 @@
     // which tab's Stagehand is on screen
     const activeId = () => TABS.map(([, id]) => id).find((id) => el(`nai_${id}_stagehand`)?.offsetParent);
 
+    const TYPING = "textarea, select, [contenteditable=''], [contenteditable=true], input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=button])";
+
     function undoKeys() {
         document.addEventListener("keydown", (e) => {
             if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
             const key = e.key.toLowerCase();
             if (key !== "z" && key !== "y") return;
             // a text box keeps its own undo
-            if (e.target.closest?.("textarea, select, [contenteditable=''], [contenteditable=true], input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=button])")) return;
+            if (e.target.closest?.(TYPING)) return;
             const id = activeId();
             if (id && step(id, key === "z" && !e.shiftKey)) e.preventDefault();
+        });
+    }
+
+    function deleteKey() {
+        const unpick = () => {
+            picked = null;
+            document.querySelectorAll(".nai-pos-picked").forEach((d) => d.classList.remove("nai-pos-picked"));
+        };
+        // capture: runs before a place's own pointerdown picks it
+        document.addEventListener("pointerdown", unpick, true);
+        document.addEventListener("keydown", (e) => {
+            if (!picked || (e.key !== "Delete" && e.key !== "Backspace") || e.target.closest?.(TYPING)) return;
+            const {id, n, j} = picked;
+            const all = characters(id);
+            const at = all.findIndex((x) => x.n === n);
+            const grid = manualOf(id) === "Grid";
+            if (at < 0 || ownPlaces(all[at].input, grid, at, all.length).length < 2) return;
+            e.preventDefault();
+            track(id);
+            removePlace(all[at].input, grid, at, all.length, j);
+            unpick();
         });
     }
 
@@ -922,8 +953,7 @@
                 if (text.startsWith("Reference")) tab.style.display = featureOn(id, "pr") ? "" : "none";
             }
             const face = card.querySelector(".nai-char-face input")?.value || FACE_AUTO;
-            const share = Number(field(`nai_${id}_char${n}_share`)?.value ?? SHARE);
-            card.querySelector(".nai-more-btn")?.classList.toggle("nai-set", face !== FACE_AUTO || share !== SHARE);
+            card.querySelector(".nai-more-btn")?.classList.toggle("nai-set", face !== FACE_AUTO);
         }
     }
 
@@ -966,17 +996,17 @@
             ".nai-char-face": "ADetailer: which detected face gets this character's prompt. auto matches them by position",
             ".nai-save-preset": "Save this character as a preset under its name (saving again updates it). Newlines are kept.",
             ".nai-delete-preset": "Delete the saved preset with this card's name (asks first)",
-            ".nai-more-btn": "More: ADetailer face, overlap share, duplicate, delete preset (a dot: something there isn't the default)",
+            ".nai-more-btn": "More: ADetailer face, delete preset (a dot: the face isn't auto)",
             ".nai-share": "Where two places overlap, they split it in proportion: 70 vs 30 gives 70/30. 50 each by default",
             ".nai-ref-add": "A reference image for this character only: her part of the image, and her face in ADetailer",
             ".nai-up": "Move this character up (earlier = further left in the default columns)",
             ".nai-down": "Move this character down (later = further right in the default columns)",
             ".nai-copy": "Duplicate this character (her references too, while there's room for them)",
-            ".nai-add-place": "Another place for this character (the same card in each): multi-angle sheets, complex compositions. × on a place removes it",
+            ".nai-add-place": "Another place for this character (the same card in each): multi-angle sheets, complex compositions. × on a place (or click it and press Delete) removes it",
             ".nai-remove": "Delete this character",
             ".nai-remove-ref": "Remove this reference",
-            ".nai-ref-hires": "Also use this reference in the hires fix pass. Off: it only shapes the first pass (looked best in testing)",
-            ".nai-ref-adetailer": "Also use this reference in ADetailer's face pass. A character's reference goes only to her own face",
+            ".nai-ref-hires": "Keep this reference while Hires fix redraws the image. Off (default): only the first pass uses it, which looked best in testing",
+            ".nai-ref-adetailer": "Keep this reference while ADetailer repaints faces, e.g. when a face drifts from the reference. A character's reference goes only to her own face",
             [`#nai_${id}_chars_manual`]: "Boxes: drag and resize a box per character. Grid: NovelAI's 5x5 grid, a dot where each character's head goes",
             ".nai-reset": "Everyone back in the default columns, left to right in card order (Ctrl+Z undoes it)",
             ".nai-switch": "Swap two characters' places",
@@ -1000,6 +1030,7 @@
             });
         }
         undoKeys();
+        deleteKey();
         setInterval(() => TABS.forEach(([, id]) => settle(id)), 100);
         // Cheap and robust against everything that can change the layout (cards, toggles,
         // a new image, resizing); a drag redraws on its own (redraw).

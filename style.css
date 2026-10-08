@@ -253,6 +253,47 @@
     font-weight: 700;
 }
 
+/* "Also use in: [] Hires fix [] ADetailer (faces)" on one line: Gradio stacks the ticks in a form block */
+.nai-panel .nai-ref-passes {
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    gap: 14px !important;
+}
+
+.nai-panel .nai-ref-passes > div,
+.nai-panel .nai-ref-passes > .form {
+    flex: 0 0 auto !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    align-items: center;
+    gap: 14px;
+    width: auto !important;
+    min-width: 0 !important;
+    background: transparent !important;
+    border: none !important;
+}
+
+.nai-panel .nai-ref-passes .nai-ref-hires,
+.nai-panel .nai-ref-passes .nai-ref-adetailer {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    min-width: max-content !important;
+}
+
+.nai-panel .nai-ref-passes label span {
+    white-space: nowrap;
+}
+
+.nai-panel .nai-ref-passes .nai-hint {
+    margin-left: 0;
+    white-space: nowrap;
+}
+
+.nai-panel .nai-ref-tab-hint {
+    display: block;
+    margin: 0 0 6px;
+}
+
 /* a character's references, in her Reference tab */
 .nai-panel .nai-ref-slot {
     display: flex;
@@ -704,13 +745,20 @@
 }
 
 .nai-surface .nai-pos-box:hover > .nai-pos-remove,
-.nai-surface .nai-pos-dot:hover > .nai-pos-remove {
+.nai-surface .nai-pos-dot:hover > .nai-pos-remove,
+.nai-surface .nai-pos-picked > .nai-pos-remove {
     opacity: 1;
 }
 
 .nai-surface .nai-pos-dot > .nai-pos-remove {
     right: -18px;
     top: -14px;
+}
+
+/* the place last clicked: Delete removes it */
+.nai-surface .nai-pos-box.nai-pos-picked {
+    outline: 2px dashed #fff;
+    outline-offset: -3px;
 }
 
 /* the small canvas: smaller marks */

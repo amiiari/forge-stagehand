@@ -78,25 +78,25 @@ without deleting it; the <b>Character Prompts</b> pill in the Stagehand header d
 with Stagehand closed).</li>
 <li><b>Presets:</b> name a card, then &#128190; saves it (prompt and Undesired Content, line breaks kept). To use one,
 type in a card's name box and pick it from the list: the card's text is replaced (Ctrl+Z undoes it), its place and
-references stay. &#8943; on a card has Delete preset, the ADetailer face, the overlap share and Duplicate.</li>
+references stay. &#8943; on a card has Delete preset (and the ADetailer face); &#10697; duplicates a card.</li>
 <li><b>Positions:</b> by default the characters stand left to right in card order (&uarr; &darr; to reorder).
 Drag one to place it yourself -- on the small canvas beside its card, or over the output image. <b>Boxes</b>: drag
 a box anywhere on it, resize it by any edge or corner. <b>Grid</b>: NovelAI's 5&times;5 grid; drag a character's
 dot to a cell, which marks its center, and each character gets the part of the image nearest its dot. Good for
 layouts columns can't do: one above the other (bunk beds), diagonal. Put a character's cell where its
-<i>head</i> will be. Both scale with the image. <b>Reset</b> puts everyone back in the default columns;
+<i>head</i> will be. Both scale with the image. <b>Reset boxes</b> puts everyone back in the default columns;
 <b>Switch</b> swaps two characters' places; <b>+</b> on a card's small map adds another place for that character
-(&times; on a place removes it); Ctrl+Z / Ctrl+Y undo and redo (outside a text box).</li>
+(&times; on a place, or click it and press Delete, removes it); Ctrl+Z / Ctrl+Y undo and redo (outside a text box).</li>
 <li><b>Interactions:</b> <code>source#hug</code> in the box of the one doing it, <code>target#hug</code> in the
 box of the one it's done to, <code>mutual#kiss</code> in both for a shared action. If it comes out the wrong way
 round on every seed, swap the two cards (&uarr; &darr;): some poses have a side the model likes to put the doer on.
 The model also tends to give the passive role (carried, lying down) to the softer-looking outfit, which no card
 order fixes: re-roll.</li>
-<li><b>Reference</b> tab: images of this character (Precise Reference), used only in her part of the image and on her
-face in ADetailer.</li>
-<li><b>Face</b> (ADetailer, in &#8943;): leave it on <i>auto</i>, and each face gets repainted with its own character's
-prompt. Pick "Nth from left" only if a face got the wrong character. <b>Overlap share %</b> (also in &#8943;): where two
-places overlap, they split it in proportion (70 vs 30 gives 70/30); 50 each by default.</li>
+<li><b>Reference</b> tab: images of this character to copy her look from (Precise Reference). Used only in her
+part of the image, so each character keeps her own look; the References help explains Strength and Fidelity.</li>
+<li><b>Overlap %</b> (beside the name): where two characters' places overlap, they split it in proportion (70 vs 30
+gives 70/30); 50 each by default. <b>Face</b> (ADetailer, in &#8943;): leave it on <i>auto</i>, and each face gets
+repainted with its own character's prompt. Pick "Nth from left" only if a face got the wrong character.</li>
 </ol>
 <p>LoRAs typed in a box apply only to that character (Settings &gt; Stagehand &gt; Character LoRAs can make them
 apply to the whole image). Wildcards and Set Queue words work inside boxes.
@@ -802,8 +802,12 @@ class CharacterPrompts(scripts.Script):
                         # also the preset search: stagehand.js lists the presets under it, and picking one fills the card
                         name = gr.Textbox(value="", show_label=False, container=False, placeholder=f"Character {i + 1} (type to find a preset)",
                                           max_lines=1, min_width=80, elem_classes=["nai-char-name"])
+                        # only matters where places overlap
+                        share = gr.Number(value=SHARE, minimum=0, maximum=100, step=5, label="Overlap %", scale=0, min_width=110,
+                                          elem_id=f"nai_{tab}_char{i + 1}_share", elem_classes=["nai-share"])
                         up = gr.Button("↑", elem_classes=["nai-icon", "nai-up"], min_width=30, scale=0)
                         down = gr.Button("↓", elem_classes=["nai-icon", "nai-down"], min_width=30, scale=0)
+                        copy = gr.Button("⧉", elem_classes=["nai-icon", "nai-copy"], min_width=30, scale=0)
                         save = gr.Button("💾", elem_classes=["nai-icon", "nai-save-preset"], min_width=30, scale=0)
                         # opens the row below (stagehand.js; no server round trip)
                         more = gr.Button("⋯", elem_classes=["nai-icon", "nai-more-btn"], min_width=30, scale=0)
@@ -811,10 +815,6 @@ class CharacterPrompts(scripts.Script):
                     with gr.Row(elem_classes=["nai-more"]):
                         # which of ADetailer's detections gets this character's prompt; auto = by position
                         face = gr.Dropdown(FACES, value=FACES[0], show_label=False, container=False, scale=0, min_width=150, elem_classes=["nai-char-face"])
-                        # only matters where places overlap
-                        share = gr.Number(value=SHARE, minimum=0, maximum=100, step=5, label="Overlap share %", scale=0, min_width=130,
-                                          elem_id=f"nai_{tab}_char{i + 1}_share", elem_classes=["nai-share"])
-                        copy = gr.Button("⧉ Duplicate", elem_classes=["nai-small", "nai-copy"], min_width=40, scale=0)
                         delete = gr.Button("🗑 Delete preset", elem_classes=["nai-small", "nai-delete-preset"], min_width=40, scale=0)
                     with gr.Tabs(elem_classes=["nai-char-tabs"]):
                         with gr.Tab("Prompt"):
@@ -824,7 +824,9 @@ class CharacterPrompts(scripts.Script):
                         if references:
                             with gr.Tab("Reference", elem_classes=["nai-ref-tab"]):
                                 # Precise Reference's cards for this character land here (stagehand.js)
-                                gr.HTML(f'<div class="nai-ref-slot" data-n="{i + 1}"></div>'
+                                gr.HTML('<div class="nai-hint nai-ref-tab-hint">Images of this character: her look is copied into her part '
+                                        'of the image only. Clean images on plain backgrounds work best.</div>'
+                                        f'<div class="nai-ref-slot" data-n="{i + 1}"></div>'
                                         f'<button type="button" class="nai-ref-add" data-n="{i + 1}">+ Add reference</button>')
                     # Rendered but hidden by CSS: the position overlay writes here.
                     box = gr.Textbox(value="", elem_id=f"nai_{tab}_char{i + 1}_box", elem_classes=["nai-hidden"], show_label=False, container=False)

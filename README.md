@@ -62,10 +62,10 @@ else. Precise Reference needs two models in `models\precise_reference\` (about 2
 - an **On** / **Off** pill in the character's color: Off leaves the character out of the next
   image without deleting it;
 - a name, which is also the preset search (below);
-- ↑ / ↓ to reorder, 💾 to save it as a preset, **⋯** for the rest, 🗑 to delete;
-- **⋯** opens a row with the **Face** pick for ADetailer (leave it on auto; see below), the
-  **Overlap share %**, **⧉ Duplicate** and **Delete preset**. A dot on ⋯ means something in it
-  isn't the default;
+- **Overlap %**: who wins where two of the character's places overlap (below);
+- ↑ / ↓ to reorder, ⧉ to duplicate, 💾 to save it as a preset, **⋯** for the rest, 🗑 to delete;
+- **⋯** opens a row with the **Face** pick for ADetailer (leave it on auto; see below) and
+  **Delete preset**. A dot on ⋯ means the face isn't auto;
 - **Prompt**, **Undesired Content** (a dot when it has text) and **Reference** (her own
   reference images, with their count; see Precise Reference) tabs;
 - a small map of her place in the image, with **+** for another place.
@@ -96,7 +96,7 @@ presets.json` in Forge's folder, so updating or reinstalling the extension keeps
   dragged stays in her default column. Two ways (the Boxes / Grid switch; switching keeps each
   character where it was):
   - **Boxes**: drag a box from anywhere on it, resize it by any edge or corner. Boxes may
-    overlap; the overlap is shared, by each card's **Overlap share %**.
+    overlap; the overlap is shared, by each card's **Overlap %**.
   - **Grid**: NovelAI's 5×5 grid. Each character is a dot that snaps to a cell. Every part of
     the image belongs to the nearest dot, so stacked or diagonal dots give layouts columns
     can't (bunk beds, someone in the foreground).
@@ -104,19 +104,19 @@ presets.json` in Forge's folder, so updating or reinstalling the extension keeps
     - Give each character its own cell; two on one cell merge.
     - A lone character's dot only changes the position words ("a girl on the left"). Use
       Boxes to confine one.
-- **Reset** puts everyone back in the default columns; **Switch** swaps two characters'
+- **Reset boxes** puts everyone back in the default columns; **Switch** swaps two characters'
   places (with just two, one ⇄ button); **on cards** / **on image** show or hide the maps on
   the cards and the boxes over the output image (hide those to click the picture under them). **Ctrl+Z / Ctrl+Y** undo and redo moves,
-  Reset, Switch and the card buttons (add, delete, ↑ ↓, duplicate), whenever you're not
+  Reset boxes, Switch and the card buttons (add, delete, ↑ ↓, duplicate), whenever you're not
   typing in a text box.
 - **More than one place for a character**: **+** on her card's map adds a half-size box (or a dot,
-  in Grid) beside her last one; drag it like any other, **×** on it removes it. Touching or
+  in Grid) beside her last one; drag it like any other, **×** on it (or click it and press Delete) removes it. Touching or
   overlapping places are drawn as one shape, the name in the biggest piece and a dot in the
   others. Every place reads the same card. For multi-angle sheets (full body on the left,
   close-up on the right, one character) and compositions where one character spans two areas.
   Want different words per view? Duplicate the card (⧉) and edit it instead. A character with
   several places gets no position words ("a girl on the left").
-- **Overlap share %** (in each card's ⋯): who wins where two places overlap.
+- **Overlap %** (beside each card's name): who wins where two places overlap.
   Every card starts at 50; the overlap is split in proportion, so 70 vs 30 gives 70/30 and
   80 vs 40 gives 2/3 vs 1/3. One character lying on another's lap: raise hers, lower the
   other's. A part of the image only one character has is the same at any share. The box or
@@ -237,9 +237,10 @@ Drop an image in, then:
   art style. 0 ignores the card; negative pushes away from it.
 - **Fidelity**: how hard the reference is to override with the prompt. 0.6 by default: in a
   blind test it ranked best (1.0, the old default, ranked last). Raise it for a closer copy.
-- **Hires fix / ADetailer**: also use the card in that pass. Off (the default), it only shapes
-  the first pass and the hires fix and ADetailer refine without it -- in a blind test that
-  ranked best on every image. In ADetailer a character's card goes only to her own face
+- **Also use in: Hires fix / ADetailer (faces)**: keep the reference in that pass too. Off (the
+  default), it only guides the first pass, the one that draws the picture, and Hires fix and
+  ADetailer refine without it -- in a blind test that ranked best on every image. Tick
+  ADetailer when a face drifts away from the reference. In ADetailer a character's card goes only to her own face
   (matched as for her prompt). Batch Hires-Fix and Batch ADetailer follow the same ticks.
 
 Tips:

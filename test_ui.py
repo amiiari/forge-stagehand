@@ -207,6 +207,14 @@ async def check_positions(page):
     await key(page, "z")
     assert await page.wait("getComputedStyle(gradioApp().querySelector('#nai_t2i_char3')).display === 'none'", 10), "Ctrl+Z didn't take the card back"
     assert await page.js(box(1)) == "0.000 0.000 0.500 1.000 + 0.500 0.250 0.750 0.750", "undoing the card also undid a position"
+    # click the extra place, Delete removes it; Ctrl+Z brings it back
+    await drag(page, "#nai_t2i_char1 .nai-mini [data-key=box1_1]", 0, 0)
+    for kind in ("keyDown", "keyUp"):
+        await page.call("Input.dispatchKeyEvent", type=kind, key="Delete", code="Delete", windowsVirtualKeyCode=46)
+    await asyncio.sleep(0.8)
+    assert await page.js(box(1)) == "0.000 0.000 0.500 1.000", f"Delete: {await page.js(box(1))!r}"
+    await key(page, "z")
+    assert await page.js(box(1)) == "0.000 0.000 0.500 1.000 + 0.500 0.250 0.750 0.750", "Ctrl+Z didn't bring the place back"
     # the on-image toggle hides the overlay, the canvases stay
     await page.js("gradioApp().querySelector('#nai_t2i_chars_tools .nai-toggle[data-what=image]').click()")
     assert await page.wait("gradioApp().querySelector('#nai_t2i_positions').style.display === 'none'", 5), "the on-image toggle didn't hide the boxes"
@@ -215,7 +223,7 @@ async def check_positions(page):
     # leave the user's page as it was: one place, nobody placed
     await page.js("gradioApp().querySelector('#nai_t2i_chars_tools .nai-reset').click()")
     await asyncio.sleep(0.8)
-    print("ok  undoing a card button; the on-image toggle")
+    print("ok  undoing a card button; Delete on a picked place (and its undo); the on-image toggle")
 
 
 async def check_paste(page, info):
@@ -267,7 +275,6 @@ async def check_reference(page, image):
     await key(page, "y")
     assert await page.wait("!!gradioApp().querySelector('#nai_t2i_char1 .nai-ref-slot #nai_t2i_pr2')", 10), "Ctrl+Y after ↑ left her reference behind"
     # ⧉ (in ⋯) copies her reference to the copy
-    await page.js("gradioApp().querySelector('#nai_t2i_char1 .nai-more-btn').click()")
     await page.js("gradioApp().querySelector('#nai_t2i_char1 .nai-copy').click()")
     assert await page.wait("!!gradioApp().querySelector('#nai_t2i_char3 .nai-ref-slot #nai_t2i_pr3')", 10), "⧉ didn't copy her reference"
     assert await page.wait("!!gradioApp().querySelector('#nai_t2i_pr3_image img')", 10), "the copied reference has no image"

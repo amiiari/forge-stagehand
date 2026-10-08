@@ -39,22 +39,24 @@ anima_hooks.install()
 REFERENCE_TYPES = ("Character", "Style", "Character & Style")
 # For people who've never used NovelAI: collapsed under the panel's title until asked for.
 HELP = """<details class="nai-help"><summary>How to use</summary><div>
+<p>A reference copies a <b>look</b> from an image: a character (face, hair, outfit) or an art style. Not a pose or a
+layout: your prompt still sets the scene.</p>
 <ol>
-<li><b>+ Add reference</b> here adds a reference for the whole image: an image of a character to keep (face, hair,
-outfit) or an art style to copy -- not a pose: it carries looks, not composition. Up to 4 references in all, e.g. the
-same character from several angles. Your prompt still sets the scene.</li>
-<li><b>A character's own references</b> go in the <b>Reference</b> tab of her Character Prompts card: they only go
-into her part of the image (and her face in ADetailer), so two characters can each keep their own looks. References
-here, for the whole image, blend: two different characters become one (NovelAI's do the same).</li>
-<li><b>Strength:</b> how much of the reference goes in: about 1 for a character, about 0.5 for an art style (at 1 it
-copies the whole artwork). 0 turns the card off; below 0 pushes away from it.</li>
-<li><b>Fidelity:</b> how hard the reference is to override with your prompt. 0.6 by default (it beat 1.0 in a blind
-test); lower it if the prompt (pose, outfit) isn't being followed, raise it for a closer copy.</li>
-<li><b>Hires fix / ADetailer:</b> also use this card in that pass. Off: the card only shapes the first pass, which
-looked best in testing. In ADetailer, a character's card goes only to her own face. Both off by default.</li>
+<li><b>A character's look:</b> add it in the <b>Reference</b> tab on her Character Prompts card. It goes only into
+her part of the image, so two characters each keep their own looks.</li>
+<li><b>For the whole image:</b> <b>+ Add reference</b> here. For an art style, or for your character if you describe
+her in the main prompt instead of a card. Everything here blends into one: two different characters here become one.</li>
+<li><b>Strength:</b> how much of the reference goes in. About 1 for a character, about 0.5 for an art style (at 1 it
+copies the whole artwork). 0 turns it off; below 0 pushes away from it.</li>
+<li><b>Fidelity:</b> how closely it's copied. Higher: a closer copy. Lower: your prompt (pose, outfit) wins more.
+0.6 by default.</li>
+<li><b>Also use in Hires fix / ADetailer:</b> a reference normally guides only the first pass, the one that draws
+the picture; Hires fix and ADetailer then refine it without the reference, which looked best in testing. Tick one to
+keep the reference in that pass too, e.g. ADetailer when a face drifts away from the reference. A character's
+reference only goes to her own face.</li>
 </ol>
-<p>Clean images on plain backgrounds work best: a busy or dark background gets copied into the picture.
-Anima only.</p>
+<p>Clean images on plain backgrounds work best: a busy or dark background gets copied into the picture. With 3-4
+references, lower each one's Strength. Up to 4 references in all, e.g. one character from a few angles. Anima only.</p>
 </div></details>"""
 
 # Cards are pre-built and revealed by "+": Gradio can't add components at runtime.
@@ -339,7 +341,8 @@ class PreciseReference(scripts.Script):
                 gr.HTML('<div class="nai-section">References</div>', elem_classes=["nai-title-cell"])
                 # the old panel-wide "also in ADetailer": kept as an arg for API callers, now per card
                 in_adetailer = gr.Checkbox(value=False, visible=False)
-                gr.HTML('<span class="nai-hint">clean images on plain backgrounds work best</span>', elem_classes=["nai-title-cell"])
+                gr.HTML('<span class="nai-hint">for the whole image: a style, or a character described in the main prompt. '
+                        "A character card's own go in its Reference tab</span>", elem_classes=["nai-title-cell"])
                 gr.HTML("", elem_classes=["nai-spacer"])  # pushes the add button to the right
                 add = gr.Button("+ Add reference", elem_classes=["nai-add"], min_width=40, scale=0)
             shown = gr.State([False] * MAX_REFS)
@@ -376,11 +379,13 @@ class PreciseReference(scripts.Script):
                                                     elem_id=f"nai_{tab}_pr{i + 1}_for", elem_classes=["nai-hidden", "nai-ref-for"])
                                 gr.HTML("", elem_classes=["nai-spacer"])
                                 remove = gr.Button("🗑", elem_classes=["nai-icon", "nai-remove-ref"], min_width=36, scale=0)
-                            strength = gr.Slider(label="Strength", minimum=-1.0, maximum=2.0, step=0.01, value=1.0)
-                            fidelity = gr.Slider(label="Fidelity", minimum=0.0, maximum=1.0, step=0.01, value=0.6)
+                            strength = gr.Slider(label="Strength", info="how much goes in: ~1 for a character, ~0.5 for a style", minimum=-1.0, maximum=2.0, step=0.01, value=1.0)
+                            fidelity = gr.Slider(label="Fidelity", info="how closely it's copied: lower lets the prompt change more", minimum=0.0, maximum=1.0, step=0.01, value=0.6)
+                            # off: only the first pass uses it (best in the blind test); one line, see style.css
                             with gr.Row(elem_classes=["nai-ref-passes"]):
-                                hires = gr.Checkbox(value=False, label="Hires fix", elem_id=f"nai_{tab}_pr{i + 1}_hires", elem_classes=["nai-auto", "nai-ref-hires"], scale=0, min_width=110)
-                                adetailer = gr.Checkbox(value=False, label="ADetailer", elem_id=f"nai_{tab}_pr{i + 1}_adetailer", elem_classes=["nai-auto", "nai-ref-adetailer"], scale=0, min_width=110)
+                                gr.HTML('<span class="nai-hint">Also use in:</span>', elem_classes=["nai-ref-passes-label"])
+                                hires = gr.Checkbox(value=False, label="Hires fix", elem_id=f"nai_{tab}_pr{i + 1}_hires", elem_classes=["nai-auto", "nai-ref-hires"], scale=0, min_width=0)
+                                adetailer = gr.Checkbox(value=False, label="ADetailer (faces)", elem_id=f"nai_{tab}_pr{i + 1}_adetailer", elem_classes=["nai-auto", "nai-ref-adetailer"], scale=0, min_width=0)
                 cards.append(card)
                 buttons.append(remove)
 
