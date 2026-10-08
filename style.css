@@ -294,6 +294,36 @@
     margin: 0 0 6px;
 }
 
+/* the Stagehand Presets tab: a scrolling list, one name per line */
+#stagehand_presets_list {
+    max-height: 68vh;
+    overflow-y: auto;
+}
+
+#stagehand_presets_list .wrap {
+    flex-direction: column;
+    gap: 2px;
+}
+
+#stagehand_presets_list label {
+    width: 100%;
+    padding: 4px 10px !important;
+}
+
+.stagehand-presets-tools button {
+    white-space: nowrap;
+}
+
+.stagehand-presets-tools {
+    flex-wrap: nowrap !important;
+    align-items: center;
+}
+
+.stagehand-presets-hint {
+    opacity: 0.7;
+    font-size: 13px;
+}
+
 /* a character's references, in her Reference tab */
 .nai-panel .nai-ref-slot {
     display: flex;

@@ -932,9 +932,6 @@
                     input.dataset.last = input.value;
                 });
             }
-            // ⋯'s Delete preset only for a card named like a saved preset
-            const del = card.querySelector(".nai-delete-preset");
-            if (del) del.style.display = input.value.trim() in presets ? "" : "none";
         }
     }
 
@@ -995,8 +992,7 @@
             ".nai-char-name": "Name (optional): shown in the image's PNG info and on its position box; a preset is saved under it. Type to find a preset: picking one replaces this card's text (Ctrl+Z undoes it)",
             ".nai-char-face": "ADetailer: which detected face gets this character's prompt. auto matches them by position",
             ".nai-save-preset": "Save this character as a preset under its name (saving again updates it). Newlines are kept.",
-            ".nai-delete-preset": "Delete the saved preset with this card's name (asks first)",
-            ".nai-more-btn": "More: ADetailer face, delete preset (a dot: the face isn't auto)",
+            ".nai-more-btn": "More: which ADetailer face is this character's (a dot: it isn't auto)",
             ".nai-share": "Where two places overlap, they split it in proportion: 70 vs 30 gives 70/30. 50 each by default",
             ".nai-ref-add": "A reference image for this character only: her part of the image, and her face in ADetailer",
             ".nai-up": "Move this character up (earlier = further left in the default columns)",
@@ -1031,6 +1027,10 @@
         }
         undoKeys();
         deleteKey();
+        // the Stagehand Presets tab re-reads the file when opened: a card's 💾 may have added one
+        document.addEventListener("click", (e) => {
+            if (e.target.closest?.("#tabs > .tab-nav button")?.textContent.trim() === "Stagehand Presets") el("stagehand_presets_refresh")?.click();
+        });
         setInterval(() => TABS.forEach(([, id]) => settle(id)), 100);
         // Cheap and robust against everything that can change the layout (cards, toggles,
         // a new image, resizing); a drag redraws on its own (redraw).

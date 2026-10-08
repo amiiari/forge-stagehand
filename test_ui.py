@@ -337,20 +337,37 @@ async def check_presets(page):
     assert await page.wait("(gradioApp().querySelector('#nai_t2i_char2_prompt textarea') || {}).value === 'girl, to be replaced'", 10), \
         "Ctrl+Z didn't take the preset back"
 
-    await page.js("gradioApp().querySelector('#nai_t2i_char1 .nai-more-btn').click()")
-    await page.js("window.confirm = () => true")
-    await page.js("gradioApp().querySelector('#nai_t2i_char1 .nai-delete-preset').click()")
+    # the Stagehand Presets tab: opening it lists the new preset; rename it, then delete it
+    await page.js("[...gradioApp().querySelectorAll('#tabs > .tab-nav button')].find(b => b.textContent.trim() === 'Stagehand Presets').click()")
+    item = f"[...gradioApp().querySelectorAll('#stagehand_presets_list label')].find(l => l.textContent.trim() === {json.dumps(PRESET_NAME)})"
+    assert await page.wait(f"!!{item}", 10), "the Presets tab doesn't list the new preset"
+    await page.js(f"{item}.querySelector('input').click()")
+    name_box = "#stagehand_presets input[placeholder^='what a card']"
+    assert await page.wait(f"gradioApp().querySelector({json.dumps(name_box)}).value === {json.dumps(PRESET_NAME)}", 10), "picking it didn't fill the editor"
+    renamed = PRESET_NAME + " renamed"
+    await page.type(name_box, renamed)
+    await page.js("[...gradioApp().querySelectorAll('#stagehand_presets button')].find(b => b.textContent.includes('Save')).click()")
     for _ in range(20):
         await asyncio.sleep(0.5)
-        if PRESET_NAME not in saved_presets():
+        if renamed in saved_presets():
             break
-    assert PRESET_NAME not in saved_presets(), "🗑 didn't delete the preset"
-    print("ok  presets: 💾 saves a card with its line breaks, the name box fills a card with it (Ctrl+Z undoes), ⋯ deletes it")
+    assert renamed in saved_presets() and PRESET_NAME not in saved_presets(), "Save with a new name didn't rename it"
+    assert saved_presets()[renamed]["prompt"] == PRESET_TEXT
+    await page.js("window.confirm = () => true")
+    await page.js("[...gradioApp().querySelectorAll('#stagehand_presets button')].find(b => b.textContent.includes('Delete')).click()")
+    for _ in range(20):
+        await asyncio.sleep(0.5)
+        if renamed not in saved_presets():
+            break
+    assert renamed not in saved_presets(), "🗑 Delete didn't delete it"
+    await page.js("[...gradioApp().querySelectorAll('#tabs > .tab-nav button')].find(b => b.textContent.trim() === 'txt2img').click()")
+    print("ok  presets: 💾 saves a card with its line breaks, the name box fills a card with it (Ctrl+Z undoes), "
+          "the Presets tab renames and deletes it")
 
 
 def drop_test_preset():
     presets = saved_presets()
-    if presets.pop(PRESET_NAME, None) is not None:
+    if [presets.pop(n, None) for n in (PRESET_NAME, PRESET_NAME + " renamed")] != [None, None]:
         with open(PRESETS, "w", encoding="utf-8") as f:
             json.dump(presets, f, ensure_ascii=False, indent=2)
 

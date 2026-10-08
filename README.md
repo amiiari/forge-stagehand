@@ -64,8 +64,8 @@ else. Precise Reference needs two models in `models\precise_reference\` (about 2
 - a name, which is also the preset search (below);
 - **Overlap %**: who wins where two of the character's places overlap (below);
 - ↑ / ↓ to reorder, ⧉ to duplicate, 💾 to save it as a preset, **⋯** for the rest, 🗑 to delete;
-- **⋯** opens a row with the **Face** pick for ADetailer (leave it on auto; see below) and
-  **Delete preset**. A dot on ⋯ means the face isn't auto;
+- **⋯** opens the **Face** pick for ADetailer (leave it on auto; see below). A dot on ⋯ means
+  the face isn't auto;
 - **Prompt**, **Undesired Content** (a dot when it has text) and **Reference** (her own
   reference images, with their count; see Precise Reference) tabs;
 - a small map of her place in the image, with **+** for another place.
@@ -84,8 +84,10 @@ typed, line breaks included. Saving a card with the same name again updates the 
 **Type in a card's name box** to find a preset, and pick it from the list: the card's prompt and
 Undesired Content are replaced, while its place, references and number stay, so swapping one
 character for another keeps the composition. Ctrl+Z undoes it. Typing a name that happens to
-match a preset doesn't fill anything; only picking it does. **⋯ → Delete preset** deletes the
-preset with the card's name (it asks first). Presets live in `stagehand character
+match a preset doesn't fill anything; only picking it does. The **Stagehand Presets** tab (at
+the top, beside txt2img and img2img) lists every preset, with a search: pick one to edit its
+prompt and Undesired Content, change its name and Save to rename it, or Delete it (it asks
+first). Presets live in `stagehand character
 presets.json` in Forge's folder, so updating or reinstalling the extension keeps them.
 
 ### Positions
@@ -355,7 +357,7 @@ python test_api.py             # the API: Forge must be running with --api
 ```
 
 `test_ui.py` generates three small images: characters from the cards, pasting them back, and
-a reference from a card. It also saves, re-adds and deletes a character preset (and never
+a reference from a card. It also saves, re-adds, renames and deletes a character preset (and never
 leaves its test preset behind). `--batch` also runs them through Batch Hires-Fix, then Batch
 ADetailer. `test_api.py` generates five small images (not saved) and checks that characters
 sent as prompt lines and as script args, and a base64 reference, come back in the PNG info.

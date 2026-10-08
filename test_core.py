@@ -420,6 +420,27 @@ def _script_module(name="character_prompts"):
                 sys.modules[k] = v
 
 
+def test_presets_tab():
+    """The Presets tab: Save with a new name renames; it never overwrites another preset."""
+    import tempfile
+
+    cp = _script_module()
+    real = cp.PRESETS
+    cp.PRESETS = os.path.join(tempfile.mkdtemp(), "presets.json")
+    try:
+        cp._write_presets({"Sally": {"prompt": "girl, white hair", "uc": ""}, "Lily": {"prompt": "girl, purple hair", "uc": "hat"}})
+        cp._tab_save("Sally", "Sally (modern)", "girl, white hair\nred eyes", "", "")
+        assert cp._presets() == {"Lily": {"prompt": "girl, purple hair", "uc": "hat"}, "Sally (modern)": {"prompt": "girl, white hair\nred eyes", "uc": ""}}
+        cp._tab_save("Lily", "Sally (modern)", "girl", "", "")  # taken: nothing changes
+        assert cp._presets()["Sally (modern)"]["prompt"] == "girl, white hair\nred eyes" and "Lily" in cp._presets()
+        cp._tab_save(None, "Kira", "girl, black hair", "", "")  # + New
+        assert cp._preset_names("ki") == ["Kira"] and cp._tab_pick("Lily") == ("Lily", "girl, purple hair", "hat")
+        cp._tab_delete("Kira", "")
+        assert "Kira" not in cp._presets()
+    finally:
+        cp.PRESETS = real
+
+
 def test_reference_actions():
     """A character card's add / delete / duplicate / reorder / undo, on the references (_act)."""
     import json
