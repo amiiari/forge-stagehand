@@ -1,8 +1,9 @@
 """Character Prompts — NovelAI-style multi-character prompting for Anima, in Forge Neo.
 
-A box per character (prompt + Undesired Content), placed by "AI's Choice" (equal columns),
-by boxes dragged over the output image, or on NovelAI's 5x5 grid. lib_stagehand/characters.py has the
-regional attention and the prompt plumbing; this file is the UI and the Forge wiring:
+A box per character (prompt + Undesired Content), in equal columns by default, or placed by
+hand: boxes dragged on the card's canvas or the output image, or on NovelAI's 5x5 grid.
+lib_stagehand/characters.py has the regional attention and the prompt plumbing; this file is
+the UI and the Forge wiring:
 
   before_process        merge the boxes into the prompt with markers, so Set Queue words
                         and Dynamic Prompts wildcards roll inside them too
@@ -28,7 +29,7 @@ from modules import processing, prompt_parser, script_callbacks, scripts, sd_sam
 from modules.paths_internal import data_path
 from modules.processing_scripts.comments import strip_comments
 
-from lib_stagehand import anima_hooks
+from lib_stagehand import anima_hooks, region_lora
 from lib_stagehand.characters import (
     SHARE,
     crop_places,
@@ -61,8 +62,8 @@ PROMPT = 2  # index of the prompt within a card's fields
 FACE = 5  # ...and of its ADetailer face pick
 NTH = ("1st", "2nd", "3rd", "4th", "5th", "6th")
 FACES = ["Face: auto"] + [f"Face: {nth} from left" for nth in NTH]
-# With AI's Choice off, how the characters are placed by hand: boxes dragged over the output,
-# or NovelAI V4.5's 5x5 grid (a cell per character = its center; nearest cell wins).
+# How a character dragged into place is placed: boxes, or NovelAI V4.5's 5x5 grid (a cell per
+# character = its center; nearest cell wins). One never dragged stands in its default column.
 MANUAL = ("Boxes", "Grid")
 # For people who've never used NovelAI: collapsed under the panel's title until asked for.
 HELP = """<details class="nai-help"><summary>How to use</summary><div>
@@ -76,11 +77,13 @@ them (it works with Stagehand closed).</li>
 <li><b>Presets:</b> name a card, then &#128190; saves it (prompt and Undesired Content, line breaks kept). To use one
 again, pick it in the list next to <b>+ Add character</b>, then click <b>+ Add character</b>; &#128465; next to the list
 deletes the selected preset.</li>
-<li><b>AI's Choice</b> on: the characters stand left to right in card order (&uarr; &darr; to reorder).
-Off: place them yourself, over the output image. <b>Boxes</b>: drag a box by its name tab, resize it by its corner
-dot. <b>Grid</b>: NovelAI's 5&times;5 grid; drag a character's dot to a cell, which marks its center, and each
-character gets the part of the image nearest its dot. Good for layouts columns can't do: one above the other
-(bunk beds), diagonal. Put a character's cell where its <i>head</i> will be. Both scale with the image.</li>
+<li><b>Positions:</b> by default the characters stand left to right in card order (&uarr; &darr; to reorder).
+Drag one to place it yourself -- on the small canvas beside its card, or over the output image. <b>Boxes</b>: drag
+a box anywhere on it, resize it by any edge or corner. <b>Grid</b>: NovelAI's 5&times;5 grid; drag a character's
+dot to a cell, which marks its center, and each character gets the part of the image nearest its dot. Good for
+layouts columns can't do: one above the other (bunk beds), diagonal. Put a character's cell where its
+<i>head</i> will be. Both scale with the image. <b>Reset</b> puts everyone back in the default columns;
+<b>Switch</b> swaps two characters' places; Ctrl+Z / Ctrl+Y undo and redo (outside a text box).</li>
 <li><b>Interactions:</b> <code>source#hug</code> in the box of the one doing it, <code>target#hug</code> in the
 box of the one it's done to, <code>mutual#kiss</code> in both for a shared action. If it comes out the wrong way
 round on every seed, swap the two cards (&uarr; &darr;): some poses have a side the model likes to put the doer on.
@@ -89,12 +92,15 @@ order fixes: re-roll.</li>
 <li><b>Face</b> (ADetailer): leave it on <i>auto</i>, and each face gets repainted with its own character's prompt.
 Pick "Nth from left" only if a face got the wrong character.</li>
 </ol>
-<p>LoRAs typed in a box apply to the whole image. Wildcards and Set Queue words work inside boxes.
+<p>LoRAs typed in a box apply only to that character (Settings &gt; Stagehand &gt; Character LoRAs can make them
+apply to the whole image). Wildcards and Set Queue words work inside boxes.
 Up to 6 characters; 2&ndash;3 work best. Anima only. Saved images list the characters in their prompt, under the
 main prompt; pasting one (or a batch ADetailer / hires-fix run) brings them back.</p>
 </div></details>"""
 # Extra-network tags (<lora:...>) apply to the whole model, so a box's tags move to the base,
 # where Forge activates them -- "any LoRA, wherever you type it, applies to the whole image".
+# Unless Character LoRAs (Settings) is Masked or Separate pass: then they stay in the box and
+# region_lora applies them to that character only.
 _NETWORK = re.compile(r"<[^<>:]+:[^<>]+>")
 
 
@@ -132,7 +138,7 @@ def _of_kind(place, size):
 
 def _characters(args):
     """[(number, name, prompt, uc, box, face, share)] for every enabled card with something to
-    say -- a box that is only a comment would otherwise still take an AI's Choice column. face
+    say -- a box that is only a comment would otherwise still take a column. face
     is the hand-picked ADetailer detection (0 = 1st from the left), or None; share the card's
     claim on overlaps, in percent."""
     out = []
@@ -165,6 +171,14 @@ def _tail(args):
     on = rest[0] if rest and rest[0] is not None else True
     manual = rest[1] if len(rest) > 1 and rest[1] in MANUAL else MANUAL[0]
     return bool(on), manual
+
+
+def _auto(auto, characters, manual):
+    """AI's Choice -- the default columns, no position words -- unless someone was placed by
+    hand (a position of the mode's kind). The UI's switch is gone and always on; an API caller
+    can still turn it off to get the columns with position words."""
+    size = 2 if manual == "Grid" else 4
+    return bool(auto) and not any(_of_kind(c[4], size) for c in characters)
 
 
 def _places(characters, auto, manual):
@@ -200,6 +214,15 @@ def _lift_networks(base: str, parts: dict) -> tuple[str, dict]:
     tags = [t for text in parts.values() for t in _NETWORK.findall(text)]
     parts = {n: _NETWORK.sub("", text).strip(" ,") for n, text in parts.items()}
     return (f"{base}, {' '.join(tags)}" if tags else base), parts
+
+
+def _keep_networks(base: str, parts: dict) -> tuple[str, dict]:
+    return base, parts
+
+
+def _lora_mode():
+    mode = getattr(shared.opts, "stagehand_cp_lora", region_lora.DEFAULT)
+    return mode if mode in region_lora.MODES else region_lora.DEFAULT
 
 
 def _schedule_steps(p, hr):
@@ -428,6 +451,31 @@ def _revealer(i):
     return reveal
 
 
+def _restore(text):
+    """Undo / redo (stagehand.js): every card -- shown or not, and its fields -- and Boxes /
+    Grid as the browser recorded them, as JSON. Through here because a card's visibility
+    lives in the server's `shown` state, which the browser can't set."""
+    try:
+        state = json.loads(text)
+        cards = list(state["cards"])
+    except (ValueError, KeyError, TypeError):
+        return [gr.update()] + _no_change() + [gr.update()]
+    shown, values, visible = [], [], []
+    for i in range(MAX_CHARS):
+        c = cards[i] if i < len(cards) and isinstance(cards[i], dict) else {}
+        try:
+            share = min(max(int(round(float(c.get("share", SHARE)))), 0), 100)
+        except (TypeError, ValueError):
+            share = SHARE
+        face = c.get("face") if c.get("face") in FACES else FACES[0]
+        shown.append(bool(c.get("visible")))
+        values += _card_values(bool(c.get("enabled", True)), str(c.get("name", "")), str(c.get("prompt", "")),
+                               str(c.get("uc", "")), str(c.get("box", "")), face, share)
+        visible.append(gr.update(visible=shown[-1]))
+    manual = state.get("manual") if state.get("manual") in MANUAL else gr.update()
+    return [shown] + values + visible + [manual]
+
+
 def _clear_on_paste(infotext, params):
     """Pasting a generation restores its characters exactly -- including having none --
     instead of leaving the previous image's boxes to be generated again. The characters are
@@ -445,10 +493,8 @@ def _clear_on_paste(infotext, params):
         params["Negative prompt"] = negative
         for n, c in ucs.items():
             params[f"Char {n} UC"] = c["text"]
-    # Forge's infotext keys can't contain an apostrophe, so "Char AI's Choice" never parses.
-    # Positions are written exactly when it was off; grid cells mean Grid.
+    # Positions are written exactly when someone was placed by hand; grid cells mean Grid.
     positions = [params.get(f"Char {n} position") for n in range(1, MAX_CHARS + 1)]
-    params.setdefault("Char AI's Choice", str(not any(positions)))
     if any(positions):  # without positions the image doesn't say, so the switch is left alone
         params.setdefault("Char placement", "Grid" if any(parse_cell(v) for v in positions if v) else "Boxes")
     # pasted characters are switched on, and so is the feature when the image had any
@@ -483,6 +529,11 @@ def _settings():
          "the rest is one prompt with every card)", gr.Slider, {"minimum": 0, "maximum": 1, "step": 0.05}),
     ):
         shared.opts.add_option(key, shared.OptionInfo(default, label, component, extra, section=("stagehand", "Stagehand")))
+    shared.opts.add_option("stagehand_cp_lora", shared.OptionInfo(
+        region_lora.DEFAULT, "Character Prompts: LoRAs typed in a card", gr.Radio, {"choices": region_lora.MODES},
+        section=("stagehand", "Stagehand"),
+    ).info("Whole image: like anywhere in Forge, every character gets them; Masked: only her area; "
+           "Separate pass: only her area, one extra model run per character with a LoRA"))
 
 
 script_callbacks.on_ui_settings(_settings)
@@ -562,14 +613,15 @@ def _face_pass(script, p, args, masks):
     info = getattr(p, "_nai_chars", None)
     if not info or getattr(p, "_ad_inner", False) or not masks:
         return None
-    if not (_uses_prompt(args.ad_prompt) or _uses_prompt(args.ad_negative_prompt)):
-        return None
     i = p.iteration * p.batch_size + getattr(p, "batch_index", 0)
     image = info["images"].get(i)
     if image is None:
         return None
     numbers = info["numbers"]
-    face = {"masks": masks, "owners": {}, "script": script, "p": p, "args": args, "i": i, "image": image, "numbers": numbers, "steps": info["steps"]}
+    # owners are matched either way: Precise Reference's per-character references follow them
+    prompts = _uses_prompt(args.ad_prompt) or _uses_prompt(args.ad_negative_prompt)
+    face = {"masks": masks, "owners": {}, "script": script, "p": p, "args": args, "i": i, "image": image, "numbers": numbers,
+            "steps": info["steps"], "prompts": prompts}
     # No character per detection when regional prompting didn't run ("ran": Anima only; the
     # characters were ignored) or with one merged mask over every face -- but every detection
     # still gets the finished prompt (the batch tab leaves that to Stagehand for these images).
@@ -639,6 +691,8 @@ def _face_prompts(face, i2i, j):
     p, i, image, steps = face["p"], face["i"], face["image"], face["steps"]
     n = face["numbers"][r] if r is not None else None
     text = (image.get("encode_prompt") or image["prompt"]).get(n, "") if n else ""
+    # her own LoRAs (Character LoRAs: Masked / Separate pass): on her face, Forge applies them whole
+    text = _join(text, *image.get("loras_prompt", {}).get(n, [])) if n else text
     uc = image["uc"].get(n, "") if n else ""
     saved = p.all_prompts[i], p.all_negative_prompts[i]
     try:
@@ -683,8 +737,14 @@ def _hook_adetailer_faces():
         def i2i_prompts_replace(i2i, prompts, negative_prompts, j, *rest, **kwargs):
             replace(i2i, prompts, negative_prompts, j, *rest, **kwargs)
             face = _faces["pass"]
+            # whose face this is: Precise Reference gives it only that character's references
+            i2i._nai_character = None
             # only inside the pass that matched these very masks
             if face and j < len(face["masks"]) and getattr(i2i, "image_mask", None) is face["masks"][j]:
+                r = face["owners"].get(j)
+                i2i._nai_character = face["numbers"][r] if r is not None else None
+                if not face["prompts"]:
+                    return
                 try:
                     _face_prompts(face, i2i, j)
                 except Exception as e:
@@ -718,10 +778,12 @@ class CharacterPrompts(scripts.Script):
             on = gr.Checkbox(value=True, label="Character Prompts", elem_id=f"nai_{tab}_chars_on", elem_classes=["nai-hidden"])
             with gr.Row(elem_classes=["nai-head"]):
                 gr.HTML('<div class="nai-section">Characters</div>', elem_classes=["nai-title-cell"])
-                auto = gr.Checkbox(value=True, label="AI's Choice", elem_id=f"nai_{tab}_chars_auto", elem_classes=["nai-auto"], scale=0, min_width=120)
+                # The old "AI's Choice" switch: an API arg still, always on in the UI. A character
+                # without a position stands in its default column either way (before_process).
+                auto = gr.Checkbox(value=True, label="AI's Choice", elem_id=f"nai_{tab}_chars_auto", elem_classes=["nai-hidden"])
                 manual = gr.Radio(list(MANUAL), value=MANUAL[0], show_label=False, container=False, elem_id=f"nai_{tab}_chars_manual", elem_classes=["nai-manual"], scale=0, min_width=160)
-                # with AI's Choice off, where the positions are placed (stagehand.js shows it)
-                gr.HTML('<span class="nai-hint">place them on the output image</span>', elem_id=f"nai_{tab}_chars_where", elem_classes=["nai-title-cell", "nai-where"])
+                # Reset, Switch and the canvas toggles: stagehand.js builds them in here
+                gr.HTML("", elem_id=f"nai_{tab}_chars_tools", elem_classes=["nai-title-cell", "nai-tools"])
                 gr.HTML("", elem_classes=["nai-spacer"])  # pushes the add button to the right
                 # a saved character for the next + (each card's 💾 saves one)
                 preset = gr.Dropdown(_preset_choices(), value="", show_label=False, container=False, scale=0, min_width=170,
@@ -753,7 +815,7 @@ class CharacterPrompts(scripts.Script):
                             uc = gr.Textbox(value="", show_label=False, lines=2, elem_id=f"nai_{tab}_char{i + 1}_uc")
                     # Rendered but hidden by CSS: the position overlay writes here.
                     box = gr.Textbox(value="", elem_id=f"nai_{tab}_char{i + 1}_box", elem_classes=["nai-hidden"], show_label=False, container=False)
-                    # only matters where places overlap, so stagehand.js shows it with AI's Choice off
+                    # only matters where places overlap
                     share = gr.Slider(0, 100, value=SHARE, step=5, label="Overlap share %", elem_id=f"nai_{tab}_char{i + 1}_share", elem_classes=["nai-share"])
                 cards.append(card)
                 ups.append(up)
@@ -798,12 +860,14 @@ class CharacterPrompts(scripts.Script):
             # Gradio re-filter an open list by the box's text, "Empty card" -- refreshed on focus,
             # the saved characters vanished a round-trip after the list opened.
             preset.blur(lambda: gr.update(choices=_preset_choices()), None, [preset], show_progress="hidden")
+            # Undo / redo: stagehand.js writes the state to go back to here (_restore)
+            restore = gr.Textbox(value="", elem_id=f"nai_{tab}_chars_restore", elem_classes=["nai-hidden"], show_label=False, container=False)
+            restore.input(_restore, [restore], [shown] + everything + [manual], show_progress="hidden")
             gr.HTML(HELP)
 
-        for component in [auto, add, preset, delete_preset] + ups + downs + copies + removes + saves:
+        for component in [auto, add, preset, delete_preset, restore] + ups + downs + copies + removes + saves:
             component.do_not_save_to_config = True  # ui-config keys collide by label
         # "True"/"False" rather than a callable key, so Send to img2img carries it too
-        infotext.append((auto, "Char AI's Choice"))
         infotext.append((manual, "Char placement"))
         # pasting an image with characters switches the feature on
         infotext.append((on, "Char feature"))
@@ -836,7 +900,7 @@ class CharacterPrompts(scripts.Script):
         characters = _characters(args) if on else []
         if not characters:
             return prompt, negative
-        auto = bool(args[0])
+        auto = _auto(args[0], characters, manual)
         places = None if auto else _places(characters, auto, manual)
         positive = show(prompt, [(n, name, None if auto else _format_place(places[n]), text, share)
                                  for n, name, text, _uc, _box, _face, share in characters])
@@ -886,6 +950,7 @@ class CharacterPrompts(scripts.Script):
         if not characters:
             return
 
+        auto = _auto(auto, characters, manual)
         numbers = [c[0] for c in characters]
         boxes = _places(characters, auto, manual)
         faces = {r: c[5] for r, c in enumerate(characters) if c[5] is not None}
@@ -903,18 +968,21 @@ class CharacterPrompts(scripts.Script):
         if not info:
             return
         start = batch_number * p.batch_size
+        # read here, not in before_process: API override_settings are in effect by now
+        info["lora"] = _lora_mode()
+        lift = _lift_networks if info["lora"] == region_lora.MODES[0] else _keep_networks
         hr_prompts = getattr(p, "all_hr_prompts", None)
         hr_negatives = getattr(p, "all_hr_negative_prompts", None)
         for k in range(len(p.prompts)):
             g = start + k
-            base, parts = _lift_networks(*split(p.prompts[k]))
+            base, parts = lift(*split(p.prompts[k]))
             negative, ucs = split(p.negative_prompts[k])
             # "prompt"/"uc" are what was typed (the infotext); "encode*" what the model gets
             image = {"prompt": parts, "uc": ucs, "hr_prompt": parts, "hr_uc": ucs}
             p.prompts[k], p.negative_prompts[k] = base, negative
             p.all_prompts[g], p.all_negative_prompts[g] = base, negative
             if hr_prompts and g < len(hr_prompts) and has_marks(hr_prompts[g]):
-                hr_base, image["hr_prompt"] = _lift_networks(*split(hr_prompts[g]))
+                hr_base, image["hr_prompt"] = lift(*split(hr_prompts[g]))
                 hr_prompts[g] = hr_base
             if hr_negatives and g < len(hr_negatives) and has_marks(hr_negatives[g]):
                 hr_negatives[g], image["hr_uc"] = split(hr_negatives[g])
@@ -922,7 +990,7 @@ class CharacterPrompts(scripts.Script):
             # the same way, or get_hr_prompt sees base != base+<lora> and writes a Hires prompt
             raw = getattr(p, "_all_prompts_c", None)
             if raw and g < len(raw) and has_marks(raw[g]):
-                raw[g], image["prompt_raw"] = _lift_networks(*split(raw[g]))
+                raw[g], image["prompt_raw"] = lift(*split(raw[g]))
             raw = getattr(p, "_all_negative_prompts_c", None)
             if raw and g < len(raw) and has_marks(raw[g]):
                 raw[g], image["uc_raw"] = split(raw[g])
@@ -931,7 +999,7 @@ class CharacterPrompts(scripts.Script):
         for attr in ("main_prompt", "main_negative_prompt"):
             text = getattr(p, attr, None)
             if has_marks(text):
-                setattr(p, attr, _lift_networks(*split(text))[0] if attr == "main_prompt" else split(text)[0])
+                setattr(p, attr, lift(*split(text))[0] if attr == "main_prompt" else split(text)[0])
 
     def process_batch(self, p, *args, batch_number=0, **kwargs):
         """Interaction tags: the plain action into each character, the who-does-what sentence
@@ -951,6 +1019,9 @@ class CharacterPrompts(scripts.Script):
                 continue
             for kind, prompts in (("prompt", p.prompts), ("hr_prompt", getattr(p, "hr_prompts", None))):
                 texts = [image[kind].get(n, "") for n in info["numbers"]]
+                # a card's own LoRA tags (Character LoRAs: Masked / Separate pass) aren't text
+                image["loras_" + kind] = {n: _NETWORK.findall(t) for n, t in zip(info["numbers"], texts) if _NETWORK.search(t)}
+                texts = [_NETWORK.sub("", t).strip(" ,") for t in texts]
                 cleaned, phrases = translate_actions(texts, boxes)
                 if not info["auto"]:
                     phrases = placement(texts, boxes) + phrases
@@ -987,13 +1058,38 @@ class CharacterPrompts(scripts.Script):
             return
         x = info.get("x") or {}
         steps = _schedule_steps(p, hr)
-        if x.get("whole"):
-            regions = _whole_regions(p, images, info["numbers"], hr, x, steps)
-        else:
+
+        def encode(numbers):
+            if x.get("whole"):
+                return _whole_regions(p, images, numbers, hr, x, steps)
             kind, uc_kind = ("encode_hr_prompt", "hr_uc") if hr else ("encode_prompt", "uc")
-            texts = [image[key].get(n) for image in images for key in (kind, uc_kind) for n in info["numbers"]]
+            texts = [image[key].get(n) for image in images for key in (kind, uc_kind) for n in numbers]
             encoded = _encode(p, texts, *steps)
-            regions = [[(encoded.get(image[kind].get(n)), encoded.get(image[uc_kind].get(n))) for n in info["numbers"]] for image in images]
+            return [[(encoded.get(image[kind].get(n)), encoded.get(image[uc_kind].get(n))) for n in numbers] for image in images]
+
+        regions = encode(info["numbers"])
+        # Character LoRAs (Masked / Separate pass). ponytail: the batch's first image's tags
+        # for all of it; per-image LoRA sets (wildcards rolling different LoRAs) would need a
+        # session per image.
+        loras = {}
+        tags = images[0].get("loras_hr_prompt" if hr else "loras_prompt") or {}
+        if info.get("lora", region_lora.MODES[0]) != region_lora.MODES[0] and tags:
+            clip = p.sd_model.forge_objects.clip
+            for n, own in tags.items():
+                pairs, patched, problems = region_lora.load(unet, clip, own)
+                for problem in problems:
+                    print(f"[Character Prompts] character {n} LoRA {problem}")
+                if pairs:
+                    loras[n] = pairs
+                if patched is not None:  # her text, read by her text-encoder LoRA
+                    p.sd_model.forge_objects.clip = patched
+                    try:
+                        column = encode([n])
+                    finally:
+                        p.sd_model.forge_objects.clip = clip
+                    r = info["numbers"].index(n)
+                    for row, own_row in zip(regions, column):
+                        row[r] = own_row[0]
         denoiser = p.sampler.model_wrap_cfg
         session = RegionSession(
             _in_crop(p, [info["boxes"][n] for n in info["numbers"]]),
@@ -1003,14 +1099,22 @@ class CharacterPrompts(scripts.Script):
             whole=bool(x.get("whole")),
             strength=x.get("strength", 1.0),
             shares=[info.get("shares", {}).get(n, SHARE) for n in info["numbers"]],
+            numbers=info["numbers"],
         )
         unet = unet.clone()
         unet.set_transformer_option(anima_hooks.REGIONS_KEY, session)
         unet.add_conditioning_modifier(session.modifier)
+        if loras:
+            lora = region_lora.LoraSession(loras, session, info["lora"])
+            unet.set_transformer_option(region_lora.KEY, lora)
+            if lora.mode == "Separate pass":
+                unet.set_model_unet_function_wrapper(lora.wrapper(unet.model_options.get("model_function_wrapper")))
+            p.extra_generation_params["Char LoRAs"] = lora.mode.lower()
         p.sd_model.forge_objects.unet = unet
         info["ran"] = True
         layout = "AI's Choice" if info["auto"] else info["manual"].lower()
-        print(f"[Character Prompts] {len(info['numbers'])} characters, {layout}{' (hires)' if hr else ''}")
+        own = f", own LoRAs ({info['lora'].lower()}) for {', '.join(map(str, loras))}" if loras else ""
+        print(f"[Character Prompts] {len(info['numbers'])} characters, {layout}{own}{' (hires)' if hr else ''}")
 
     def postprocess(self, p, processed, *args):
         # not from inside ADetailer's own pass, which runs every script when "Apply only

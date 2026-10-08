@@ -3,6 +3,8 @@
     venv\\Scripts\\python.exe extensions\\forge-stagehand\\test_core.py
 """
 
+import os
+
 import numpy as np
 import torch
 from PIL import Image
@@ -51,6 +53,76 @@ def test_ip_session():
     # Forge's Anima reference frames: T=2 in the block output, still one embedding frame
     two = run(IPReference(tokens, 1.0, 0.0), out=torch.randn(4, 2, 3, 2, 8))
     assert two.shape == (4, 2, 3, 2, 8)
+
+
+def test_ip_target():
+    """A reference for one character goes only into her region, as Character Prompts weighs it."""
+    torch.manual_seed(0)
+    adapter = AnimaIPAdapter(num_blocks=1, embed_dim=6, inner_dim=8)
+    q = torch.randn(2, 12, 2, 4)
+    out = torch.randn(2, 1, 3, 4, 8)
+    emb = torch.randn(2, 1, 8)
+    options = {"cond_indices": [0], "uncond_indices": [1]}
+    tokens = torch.randn(1, 5, 6)
+    weights = torch.rand(3, 12)  # background, character 1, character 4
+
+    class Regions:
+        numbers = [1, 4]
+
+        def weights(self, length, device, dtype):
+            return weights.to(device=device, dtype=dtype)
+
+    def run(target, regions=Regions()):
+        session = IPSession(adapter, [IPReference(tokens, 1.0, 0.0, target)])
+        session.capture(0, q, options, regions)
+        return session.apply(0, out, emb)
+
+    full = run(None) - out
+    # the injected output is linear in the IP attention, so masking it scales each token
+    mine = run(4) - out
+    assert torch.allclose(mine, full * weights[2].view(1, 1, 3, 4, 1), atol=1e-6)
+    assert torch.allclose(run(1) - out, full * weights[1].view(1, 1, 3, 4, 1), atol=1e-6)
+    # no such character, or no regions at all: nothing
+    assert torch.equal(run(2), out) and torch.equal(run(1, regions=None), out)
+    # a whole-image reference ignores the regions
+    assert torch.equal(run(None, regions=None), run(None))
+
+
+def test_reference_args():
+    """Per-card options (for, Hires, ADetailer): the current arg layout, the one before them,
+    and images from before them pasted or re-run -- each means what it did when it was made."""
+    pr = _script_module("precise_reference")
+    card = ["img", "Character", 0.6, 0.75]
+    empty = ["", "Character", 1.0, 1.0]
+    # current: 4 cards, old panel-wide ADetailer, on, then (for, hires, adetailer) per card
+    now = card + empty * 3 + [False, True] + ["Character 2", True, False] + ["Whole image", False, False] * 3
+    assert pr._cards(now)[0] == ("img", "Character", 0.6, 0.75, 2, True, False)
+    assert pr._cards(now)[1][4:] == (None, False, False)
+    # a list without them gets the defaults (as Forge's API pads it), the old panel flag still counts
+    assert pr._cards(card + empty * 3 + [True, True])[0][4:] == (None, False, True)
+    assert pr._cards(card + empty * 3 + [False, True])[0][4:] == (None, False, False)
+    assert pr._target("Character 3") == 3 and pr._target(3) == 3
+    assert pr._target("Whole image") is None and pr._target(True) is None and pr._target(None) is None
+
+    # an image from before them: its references were in hires (and ADetailer if it said so)
+    old = pr._fill_defaults({"PR 1 image": "x.png", "PR in ADetailer": "True"})
+    assert (old["PR 1 hires"], old["PR 1 ADetailer"], old["PR 1 for"]) == ("True", "True", "Whole image")
+    assert (old["PR 2 hires"], old["PR 2 ADetailer"]) == ("False", "False")  # an empty card: the new defaults
+    new = pr._fill_defaults({"PR 1 image": "x.png", "PR 1 hires": "False", "PR 1 ADetailer": "True", "PR 1 for": "Character 2"})
+    assert (new["PR 1 hires"], new["PR 1 ADetailer"], new["PR 1 for"]) == ("False", "True", "Character 2")
+
+    # re-run from PNG info (the batch tabs): the full current layout, the kept copy found again
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+        kept = f.name
+    try:
+        args = pr.PreciseReference().args_from_infotext({"PR 1 image": kept, "PR 1 strength": "0.6", "PR 1 for": "Character 2", "PR 1 hires": "True", "PR 1 ADetailer": "False"})
+        assert len(args) == pr.MAX_REFS * (pr.CARD_FIELDS + pr.EXTRA_FIELDS) + 2
+        assert pr._cards(args)[0] == (kept, "Character", 0.6, 1.0, 2, True, False)
+        assert pr.PreciseReference().args_from_infotext({"Steps": "30"}) is None
+    finally:
+        os.remove(kept)
 
 
 def test_kv_projected_once():
@@ -316,8 +388,8 @@ def test_crop_places():
     assert crop_places([((0.0, 0.0, 0.5, 0.5), (0.75, 0.25))], (512, 0, 512, 384), (1024, 768)) == [((-1.0, 0.0, 0.0, 1.0), (0.5, 0.5))]
 
 
-def _character_prompts_module():
-    """scripts/character_prompts.py with Forge stubbed out: only its pure helpers run."""
+def _script_module(name="character_prompts"):
+    """scripts/<name>.py with Forge stubbed out: only its pure helpers run."""
     import importlib.util
     import sys
     from types import ModuleType
@@ -327,7 +399,8 @@ def _character_prompts_module():
                                             "modules.script_callbacks", "modules.scripts", "modules.sd_samplers",
                                             "modules.shared", "modules.paths_internal", "modules.processing_scripts",
                                             "modules.processing_scripts.comments", "backend", "backend.nn",
-                                            "backend.nn.anima")}
+                                            "backend.nn.anima", "backend.args", "backend.patcher", "backend.patcher.lora",
+                                            "lib_stagehand.adapter_runtime")}
     stubs["modules.paths_internal"].data_path = "."
     stubs["modules.processing_scripts.comments"].strip_comments = lambda text: text
     stubs["modules.scripts"].Script = type("Script", (), {})
@@ -335,7 +408,7 @@ def _character_prompts_module():
     saved = {k: sys.modules.get(k) for k in stubs}
     sys.modules.update(stubs)
     try:
-        spec = importlib.util.spec_from_file_location("character_prompts_under_test", "scripts/character_prompts.py")
+        spec = importlib.util.spec_from_file_location(f"{name}_under_test", f"scripts/{name}.py")
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         return module
@@ -351,7 +424,7 @@ def test_prompt_lines():
     """forge link forwards a slot's cards as PNG-info lines; they must read back as the same cards."""
     from lib_stagehand.characters import read
 
-    cp = _character_prompts_module()
+    cp = _script_module()
     script = cp.CharacterPrompts()
 
     def args(auto, cards, on=True, manual="Boxes", shares=()):
@@ -362,13 +435,33 @@ def test_prompt_lines():
 
     ren = (True, "Ren", "girl, dark blue hair, source#hug", "blonde hair", "0.000 0.000 0.500 1.000")
     kira = (True, "", "girl, black hair\nwhite tips", "", "0.500 0.000 1.000 1.000")
-    # AI's Choice: no positions written, both cards and Ren's Undesired Content come back
-    pos, neg = script.prompt_lines("2girls, cafe", "bad hands", *args(True, [ren, kira]))
+    # nobody placed (the UI's AI's Choice arg is always on): no positions written, both cards and
+    # Ren's Undesired Content come back
+    unplaced = [(*ren[:4], ""), (*kira[:4], "")]
+    pos, neg = script.prompt_lines("2girls, cafe", "bad hands", *args(True, unplaced))
     base, chars = read(pos)
     assert base == "2girls, cafe" and [c["text"] for c in chars.values()] == [ren[2], kira[2]], (base, chars)
     assert chars[1]["name"] == "Ren" and chars[1]["box"] == "" and chars[2]["box"] == ""
     nbase, ucs = read(neg)
     assert nbase == "bad hands" and ucs[1]["text"] == "blonde hair" and 2 not in ucs, (nbase, ucs)
+    # someone dragged: placed, the others at their default columns, even with the arg on
+    pos, _ = script.prompt_lines("2girls", "", *args(True, [ren, (*kira[:4], "")]))
+    assert [c["box"] for c in read(pos)[1].values()] == [ren[4], "0.500 0.000 1.000 1.000"], pos
+    # undo / redo hands the whole state back as JSON: cards shown, their fields, Boxes / Grid
+    import json as _json
+
+    state = {"manual": "Grid", "cards": [{"visible": True, "enabled": False, "name": "Ren", "prompt": "girl", "uc": "x",
+                                          "box": "B3", "face": cp.FACES[2], "share": "70"}]}
+    out = cp._restore(_json.dumps(state))
+    assert out[0] == [True] + [False] * (cp.MAX_CHARS - 1), out[0]
+    assert out[1 : 1 + cp.CARD_FIELDS] == [False, "Ren", "girl", "x", "B3", cp.FACES[2], 70], out[1 : 1 + cp.CARD_FIELDS]
+    assert out[1 + cp.CARD_FIELDS : 1 + 2 * cp.CARD_FIELDS] == cp._card_values() and out[-1] == "Grid"
+    assert len(out) == 1 + cp.MAX_CHARS * cp.CARD_FIELDS + cp.MAX_CHARS + 1
+    # ...and anything it can't read changes nothing
+    assert len(cp._restore("not json")) == len(out)
+    # ...but only a position of the mode's kind counts: a Grid leftover in Boxes is nobody placed
+    assert cp._auto(True, [(1, "", "girl", "", cp._parse_place("B3"), None, 50)], "Boxes")
+    assert not cp._auto(True, [(1, "", "girl", "", cp._parse_place("B3"), None, 50)], "Grid")
     # Boxes: each card's box goes along
     pos, _ = script.prompt_lines("2girls", "", *args(False, [ren, kira]))
     assert [c["box"] for c in read(pos)[1].values()] == [ren[4], kira[4]], pos
@@ -531,6 +624,59 @@ def test_position_words_in_actions():
     stacked = [(0.45, 0.25, 1, 1), (0.5, 0, 1, 0.55)]
     _, phrases = translate_actions(["girl, b, source#piggyback", "girl, c, target#piggyback"], stacked)
     assert phrases == ["piggyback", "the girl at the bottom right is doing piggyback to the girl at the top right"]
+
+
+def test_region_lora():
+    import torch.nn as nn
+
+    from lib_stagehand import region_lora
+    from lib_stagehand.characters import RegionSession
+
+    # a 2x4 token grid split into two columns; character 2 has a LoRA on one Linear
+    regions = RegionSession([(0, 0, 0.5, 1), (0.5, 0, 1, 1)], [[(None, None)] * 2], step=lambda: 0, blur=0, numbers=[1, 2])
+    regions.grid = (1, 2, 4)
+    linear = nn.Linear(3, 3, bias=False)
+    down, up = torch.ones(1, 3), torch.ones(3, 1)
+    x = torch.ones(1, 8, 3)
+    session = region_lora.LoraSession({2: {linear: [(down, up, 0.5)]}}, regions, "Masked")
+    delta = session.adjust(linear, x, torch.zeros(1, 8, 3))[0, :, 0].reshape(2, 4)
+    assert torch.allclose(delta, torch.tensor([[0, 0, 1.5, 1.5]] * 2)), delta  # her column only
+    # the text side: in full for her own text, nothing for anyone else's
+    linear._rl_context = True
+    assert not session.adjust(linear, x, torch.zeros(1, 8, 3)).any()
+    session.context_owner = 2
+    assert torch.allclose(session.adjust(linear, x, torch.zeros(1, 8, 3)), torch.full((1, 8, 3), 1.5))
+
+    # Separate pass: base, then her call blended in over her region of the latent (4x8 here)
+    session = region_lora.LoraSession({2: {}}, regions, "Separate pass")
+    calls = []
+
+    def apply_model(x, t, **c):
+        calls.append(session.pass_owner)
+        return torch.full((1, 1, 1, 4, 8), 1.0 if session.pass_owner else 0.0)
+
+    out = session.wrapper()(apply_model, {"input": None, "timestep": None, "c": {}})
+    assert calls == [None, 2] and session.pass_owner is None
+    assert out[0, 0, 0, :, :4].eq(0).all() and out[0, 0, 0, :, 4:].eq(1).all(), out
+
+    # hooked Linears read the current session; without one they're untouched
+    class Block(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.self_attn, self.cross_attn, self.mlp = nn.Linear(3, 3), nn.Module(), nn.Sequential(nn.Linear(3, 3))
+            self.cross_attn.k_proj = nn.Linear(3, 3)
+
+    block = Block()
+    region_lora.hook_linears(block)
+    region_lora.hook_linears(block)  # twice: still one hook
+    assert block.cross_attn.k_proj._rl_context and not block.self_attn._rl_context
+    plain = block.self_attn(x)
+    region_lora.current = region_lora.LoraSession({2: {block.self_attn: [(down, up, 1.0)]}}, regions, "Masked")
+    try:
+        hooked = block.self_attn(x)
+    finally:
+        region_lora.current = None
+    assert torch.allclose((hooked - plain)[0, :, 0].reshape(2, 4), torch.tensor([[0, 0, 3.0, 3.0]] * 2))
 
 
 if __name__ == "__main__":

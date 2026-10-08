@@ -135,10 +135,23 @@ class IPReference:
     """Strength for the positive and negative passes. Every block, every step: the A/B
     tests found the early blocks contribute nothing and the step window little."""
 
-    def __init__(self, tokens: torch.Tensor, cond_weight: float, uncond_weight: float):
+    def __init__(self, tokens: torch.Tensor, cond_weight: float, uncond_weight: float, target: int | None = None):
         self.tokens = tokens
         self.cond_weight = float(cond_weight)
         self.uncond_weight = float(uncond_weight)
+        # a character's number: only over her region (Character Prompts'); None = everywhere
+        self.target = target
+
+
+def region_mask(regions, number: int, length: int, device, dtype) -> torch.Tensor | None:
+    """[length]: how much of every token is this character's -- Character Prompts' region
+    weights, the same blend her prompt gets. None when she isn't drawn in this pass (no
+    regions, or no such character)."""
+    numbers = list(getattr(regions, "numbers", None) or [])
+    if number not in numbers:
+        return None
+    weights = regions.weights(length, device, dtype)
+    return None if weights is None else weights[numbers.index(number) + 1]
 
 
 class IPSession:
@@ -179,9 +192,10 @@ class IPSession:
             self.kv[key] = (k, v)
         return self.kv[key]
 
-    def capture(self, index: int, q: torch.Tensor, transformer_options: dict) -> None:
+    def capture(self, index: int, q: torch.Tensor, transformer_options: dict, regions=None) -> None:
         """Called with a block's cross-attention query, [B, L, heads, dim] after q_norm --
-        the same q the node computes from the cross-attention input."""
+        the same q the node computes from the cross-attention input. regions: Character
+        Prompts' session, for the references that belong to one character."""
         batch, length, heads, dim = q.shape
         rows = self._row_weights(batch, transformer_options)
         if not rows:
@@ -189,12 +203,20 @@ class IPSession:
         query = q.transpose(1, 2)
         total = None
         for n, ref, weights in rows:
+            mask = None
+            if ref.target is not None:
+                mask = region_mask(regions, ref.target, length, q.device, q.dtype)
+                if mask is None:
+                    continue
             k, v = self._project(n, ref, index, heads, dim, q)
             out = F.scaled_dot_product_attention(query, k.expand(batch, -1, -1, -1), v.expand(batch, -1, -1, -1))
             out = out.transpose(1, 2).reshape(batch, length, heads * dim)
             out = out * torch.tensor(weights, device=out.device, dtype=out.dtype).view(batch, 1, 1)
+            if mask is not None:
+                out = out * mask.to(out.dtype)[None, :, None]
             total = out if total is None else total + out
-        self.pending[index] = total
+        if total is not None:
+            self.pending[index] = total
 
     def apply(self, index: int, out: torch.Tensor, emb: torch.Tensor) -> torch.Tensor:
         """Called with a block's output [B, T, H, W, D] and its timestep embedding [B, T', D]

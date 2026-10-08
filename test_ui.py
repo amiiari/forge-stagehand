@@ -133,6 +133,91 @@ async def check_characters(page, tmp):
     return info, out
 
 
+async def drag(page, selector, dx, dy):
+    """A real mouse drag (pointer events) from the middle of the element, by dx, dy pixels."""
+    box = await page.js(f"(() => {{ const e = gradioApp().querySelector({json.dumps(selector)}); if (!e) return null; "
+                        f"e.scrollIntoView({{block: 'center'}}); const r = e.getBoundingClientRect(); "
+                        f"return [r.left + r.width / 2, r.top + r.height / 2]; }})()")
+    assert box, f"nothing to drag at {selector}"
+    x, y = box
+    await page.call("Input.dispatchMouseEvent", type="mouseMoved", x=x, y=y)
+    await page.call("Input.dispatchMouseEvent", type="mousePressed", x=x, y=y, button="left", clickCount=1)
+    for k in range(1, 6):
+        await page.call("Input.dispatchMouseEvent", type="mouseMoved", x=x + dx * k / 5, y=y + dy * k / 5, button="left")
+        await asyncio.sleep(0.05)
+    await page.call("Input.dispatchMouseEvent", type="mouseReleased", x=x + dx, y=y + dy, button="left", clickCount=1)
+    await asyncio.sleep(0.8)  # the undo log closes an action once the page has settled
+
+
+async def key(page, letter, shift=False):
+    await page.js("document.activeElement?.blur()")
+    for kind in ("keyDown", "keyUp"):
+        await page.call("Input.dispatchKeyEvent", type=kind, key=letter, code=f"Key{letter.upper()}",
+                        windowsVirtualKeyCode=ord(letter.upper()), modifiers=2 | (8 if shift else 0))
+    await asyncio.sleep(1.2)  # restored through the server
+
+
+async def check_positions(page):
+    """The two characters from check_characters: their canvases, dragging, Reset / Switch, undo."""
+    box = lambda n: f"(gradioApp().querySelector('#nai_t2i_char{n}_box textarea, #nai_t2i_char{n}_box input') || {{}}).value"  # noqa: E731
+    assert await page.wait("!!gradioApp().querySelector('#nai_t2i_char1 .nai-mini [data-key=box1_0]') && "
+                           "!!gradioApp().querySelector('#nai_t2i_char2 .nai-mini [data-key=box2_0]')", 10), "no small canvas on the cards"
+    assert not await page.js("!!gradioApp().querySelector('#nai_t2i_char1 .nai-mini [data-key=box2_0]')"), \
+        "a card's canvas shows another character"
+    assert await page.js(box(1)) == "" and await page.js(box(2)) == "", "positions before anyone was placed"
+    # 768x768: the canvas is 200x200, so 20px is 0.1 of the image
+    await drag(page, "#nai_t2i_char1 .nai-mini [data-key=box1_0]", 20, 0)
+    assert await page.js(box(1)) == "0.100 0.000 0.600 1.000", f"dragging on the canvas: {await page.js(box(1))!r}"
+    assert await page.wait("(gradioApp().querySelector('#nai_t2i_positions [data-key=box1_0]') || {style: {}}).style.left === '10%'", 5), \
+        "the output-image overlay didn't follow the canvas"
+    # the top edge's grab strip, not just a corner
+    await drag(page, "#nai_t2i_char1 .nai-mini [data-key=box1_0] [data-dir=n]", 0, 40)
+    assert await page.js(box(1)) == "0.100 0.200 0.600 1.000", f"resizing by an edge: {await page.js(box(1))!r}"
+    await key(page, "z")
+    assert await page.js(box(1)) == "0.100 0.000 0.600 1.000", f"Ctrl+Z: {await page.js(box(1))!r}"
+    await key(page, "z")
+    assert await page.js(box(1)) == "", f"Ctrl+Z twice: {await page.js(box(1))!r}"
+    await key(page, "y")
+    assert await page.js(box(1)) == "0.100 0.000 0.600 1.000", f"Ctrl+Y: {await page.js(box(1))!r}"
+    print("ok  dragging and resizing on a card's canvas moves the output overlay too; Ctrl+Z / Ctrl+Y")
+
+    await page.js("(() => { const t = gradioApp().querySelector('#nai_t2i_chars_tools'); t.querySelector('.nai-switch-a').value = '1'; "
+                  "t.querySelector('.nai-switch-b').value = '2'; t.querySelector('.nai-switch-go').click(); })()")
+    await asyncio.sleep(0.8)
+    assert (await page.js(box(1)), await page.js(box(2))) == ("0.500 0.000 1.000 1.000", "0.100 0.000 0.600 1.000"), \
+        f"Switch: {await page.js(box(1))!r}, {await page.js(box(2))!r}"
+    await page.js("gradioApp().querySelector('#nai_t2i_chars_tools .nai-reset').click()")
+    await asyncio.sleep(0.8)
+    assert (await page.js(box(1)), await page.js(box(2))) == ("", ""), "Reset left a position"
+    # another place: half size, beside the first, drawn as one shape with the first
+    await page.js("gradioApp().querySelector('#nai_t2i_char1 .nai-add-place').click()")
+    await asyncio.sleep(0.8)
+    assert await page.js(box(1)) == "0.000 0.000 0.500 1.000 + 0.500 0.250 0.750 0.750", f"＋: {await page.js(box(1))!r}"
+    assert await page.js("gradioApp().querySelector('#nai_t2i_char1 .nai-mini [data-key=box1_0]').classList.contains('nai-labelled') && "
+                         "!gradioApp().querySelector('#nai_t2i_char1 .nai-mini [data-key=box1_1]').classList.contains('nai-labelled')"), \
+        "the name isn't on the biggest piece only"
+    line = await page.js("gradioApp().querySelector('#nai_t2i_char1 .nai-mini .nai-union-line').getAttribute('d')")
+    assert "M50.00 25.00V75.00" not in line and "M50.00 0.00V25.00" in line, f"not one outline: {line}"
+    print("ok  Switch, Reset, and ＋ (a half-size place, one outline with the first)")
+
+    # a card button is undoable too
+    await page.js("gradioApp().querySelector('#nai_t2i_chars .nai-add').click()")
+    assert await page.wait("getComputedStyle(gradioApp().querySelector('#nai_t2i_char3')).display !== 'none'", 10), "+ didn't add card 3"
+    await asyncio.sleep(1)
+    await key(page, "z")
+    assert await page.wait("getComputedStyle(gradioApp().querySelector('#nai_t2i_char3')).display === 'none'", 10), "Ctrl+Z didn't take the card back"
+    assert await page.js(box(1)) == "0.000 0.000 0.500 1.000 + 0.500 0.250 0.750 0.750", "undoing the card also undid a position"
+    # the on-image toggle hides the overlay, the canvases stay
+    await page.js("gradioApp().querySelector('#nai_t2i_chars_tools .nai-toggle[data-what=image]').click()")
+    assert await page.wait("gradioApp().querySelector('#nai_t2i_positions').style.display === 'none'", 5), "the on-image toggle didn't hide the boxes"
+    assert await page.js("!!gradioApp().querySelector('#nai_t2i_char1 .nai-mini')")
+    await page.js("gradioApp().querySelector('#nai_t2i_chars_tools .nai-toggle[data-what=image]').click()")
+    # leave the user's page as it was: one place, nobody placed
+    await page.js("gradioApp().querySelector('#nai_t2i_chars_tools .nai-reset').click()")
+    await asyncio.sleep(0.8)
+    print("ok  undoing a card button; the on-image toggle")
+
+
 async def check_paste(page, info):
     await setup(page)
     await page.type("#txt2img_prompt textarea", info)
@@ -156,6 +241,19 @@ async def check_reference(page, image):
     info = await page.generate()
     assert "PR 1 image:" in info, f"the reference wasn't applied (no 'PR 1 image' in the PNG info):\n{info}"
     print("ok  a reference dropped into a card is applied, and its file path is in the PNG info")
+
+    # for character 2 only (check_paste left two), and in ADetailer
+    await page.js("gradioApp().querySelector('#nai_t2i_pr1_for input').dispatchEvent(new Event('focus'))")
+    await page.js("gradioApp().querySelector('#nai_t2i_pr1_for input').click()")
+    found = "Array.from(gradioApp().querySelectorAll('#nai_t2i_pr1_for li')).find(li => li.textContent.replace('✓', '').trim() === 'Character 2')"
+    assert await page.wait(f"!!{found}", 10), "Character 2 isn't in the card's For list"
+    await page.js(f"{found}.dispatchEvent(new MouseEvent('mousedown', {{bubbles: true}}))")
+    await page.js("gradioApp().querySelector('#nai_t2i_pr1_adetailer input').click()")
+    await asyncio.sleep(1)
+    info = await page.generate()
+    assert "PR 1 for: Character 2" in info and "PR 1 ADetailer: True" in info and "PR 1 hires: False" in info, \
+        f"the card's For / ADetailer didn't reach the PNG info:\n{info}"
+    print("ok  a reference for one character, ticked for ADetailer, is recorded as such")
 
 
 PRESET_NAME = "stagehand test preset"
@@ -272,6 +370,7 @@ async def main(url, batch):
             page = Page(ws, url)
             await page.call("Page.enable")
             info, image = await check_characters(page, tmp)
+            await check_positions(page)
             await check_paste(page, info)
             await check_reference(page, image)
             try:

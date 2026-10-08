@@ -19,7 +19,7 @@ args = parser.parse_args()
 
 # The characters ride in the prompt, as lines after the main prompt -- the same lines an
 # image's PNG info has. Positions are fractions of the image (x0 y0 x1 y1) or grid cells
-# ("B3"); leave "at ..." out for AI's Choice (left to right in number order). ", share N%"
+# ("B3"); leave "at ..." out for the default columns (left to right in number order). ", share N%"
 # decides who wins where places overlap (50 each if left out); several places for one
 # character are joined with " + ".
 prompt = """masterpiece, best quality, 2girls, lap pillow, on couch, living room
@@ -45,11 +45,13 @@ payload = {
 if args.reference:
     with open(args.reference, "rb") as f:
         image = base64.b64encode(f.read()).decode()
-    # 4 reference cards x [image, type, strength, fidelity], then [also in ADetailer, on].
-    # An empty card is "". Type: "Character", "Style" or "Character & Style".
+    # 4 reference cards x [image, type, strength, fidelity], then [(old) ADetailer, on], then
+    # 4 x [for, in Hires fix, in ADetailer]. An empty card is "". Type: "Character", "Style"
+    # or "Character & Style". For: "Whole image" or "Character N" -- here only Rin gets it.
     empty = ["", "Character", 1.0, 1.0]
     payload["alwayson_scripts"] = {
-        "Precise Reference": {"args": [image, "Character", 1.0, 1.0] + empty * 3 + [False, True]},
+        "Precise Reference": {"args": [image, "Character", 1.0, 1.0] + empty * 3 + [False, True]
+                              + ["Character 1", True, True] + ["Whole image", False, False] * 3},
     }
 
 request = urllib.request.Request(f"{args.url}/sdapi/v1/txt2img", json.dumps(payload).encode(),

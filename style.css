@@ -90,11 +90,6 @@
     font-size: 13px !important;
 }
 
-/* "place them on the output image": shown by stagehand.js while AI's Choice is off */
-.nai-panel .nai-head > .nai-where {
-    display: none;
-}
-
 .nai-panel button.nai-add {
     background: var(--nai-gold) !important;
     color: var(--nai-bg) !important;
@@ -279,7 +274,7 @@
     opacity: 0.45;
 }
 
-/* Boxes / Grid, shown with AI's Choice off */
+/* Boxes / Grid */
 .nai-panel .nai-manual {
     background: transparent !important;
     border: none !important;
@@ -360,112 +355,290 @@
     background: rgba(0, 0, 0, 0.3);
 }
 
-/* the canvas of the next image, outlined so a changed width x height is visible */
-.nai-positions {
+/* Surfaces: the overlay on the output image and each card's small canvas (stagehand.js). */
+.nai-surface {
     position: absolute;
+    box-sizing: border-box;
+}
+
+.nai-surface .nai-c1 { --nai-char: #ff7aa8; }
+.nai-surface .nai-c2 { --nai-char: #6ab0ff; }
+.nai-surface .nai-c3 { --nai-char: #6fe3a0; }
+.nai-surface .nai-c4 { --nai-char: #ffb36b; }
+.nai-surface .nai-c5 { --nai-char: #b48cff; }
+.nai-surface .nai-c6 { --nai-char: #5fd6d6; }
+
+/* the canvas of the next image, outlined so a changed width x height is visible; the image
+   stays clickable outside the boxes */
+.nai-positions {
     z-index: 20;
     pointer-events: none;
-    box-sizing: border-box;
     outline: 1px dashed rgba(245, 243, 194, 0.55);
 }
 
-/* the box body lets clicks through to the gallery; drag by the name tab, resize by the dot */
-.nai-positions .nai-pos-box {
+/* a card's canvas: the image's shape, top right in the card */
+.nai-panel .nai-char-card.nai-has-mini {
+    position: relative;
+    padding-right: calc(var(--nai-mini-w, 200px) + 18px) !important;
+    min-height: calc(var(--nai-mini-h, 200px) + 14px);
+}
+
+.nai-mini {
+    top: 6px;
+    right: 8px;
+    border: 1px solid var(--nai-border);
+    border-radius: 4px;
+    background: var(--nai-input);
+}
+
+/* a character's places as one shape: the fill and outline of their union, drawn under the
+   (transparent) boxes that take the drags */
+.nai-surface > svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none;
+}
+
+.nai-surface .nai-union-fill {
+    fill: color-mix(in srgb, var(--nai-char) 18%, transparent);
+    shape-rendering: crispEdges;
+}
+
+.nai-surface .nai-union-line {
+    fill: none;
+    stroke: var(--nai-char);
+    stroke-width: 2px;
+    stroke-linecap: square;
+    vector-effect: non-scaling-stroke;
+}
+
+/* a place: dragged from anywhere on it, resized by any edge or corner */
+.nai-surface .nai-pos-box {
     position: absolute;
     box-sizing: border-box;
-    pointer-events: none;
+    pointer-events: auto;
     touch-action: none;
-    border: 2px solid var(--nai-char);
-    background: color-mix(in srgb, var(--nai-char) 18%, transparent);
-    border-radius: 6px;
+    cursor: move;
 }
 
-.nai-positions .nai-c1 { --nai-char: #ff7aa8; }
-.nai-positions .nai-c2 { --nai-char: #6ab0ff; }
-.nai-positions .nai-c3 { --nai-char: #6fe3a0; }
-.nai-positions .nai-c4 { --nai-char: #ffb36b; }
-.nai-positions .nai-c5 { --nai-char: #b48cff; }
-.nai-positions .nai-c6 { --nai-char: #5fd6d6; }
-
-.nai-positions .nai-pos-label {
+/* the name: small, once, in the middle of the character's biggest piece */
+.nai-surface .nai-pos-label {
+    display: none;
     position: absolute;
-    left: 0;
-    top: 0;
-    padding: 1px 8px 2px;
-    border-radius: 4px 0 6px 0;
-    background: var(--nai-char);
-    pointer-events: auto;
-    cursor: move;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    max-width: 90%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 0 5px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--nai-char) 75%, transparent);
     color: #fff;
     font-weight: 700;
-    font-size: 13px;
-    text-shadow: 0 0 3px #000, 0 0 3px #000;
+    font-size: 11px;
+    line-height: 16px;
+    white-space: nowrap;
+    text-shadow: 0 0 2px #000;
+    pointer-events: none;
 }
 
+.nai-surface .nai-labelled > .nai-pos-label {
+    display: block;
+}
+
+/* ...and a dot in the middle of each of its other pieces */
+.nai-surface .nai-pos-box > .nai-pos-mark {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 8px;
+    height: 8px;
+    margin: -4px 0 0 -4px;
+    border-radius: 50%;
+    background: var(--nai-char);
+    box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.35);
+    pointer-events: none;
+}
+
+.nai-surface .nai-labelled > .nai-pos-mark {
+    display: none;
+}
+
+/* the 8 handles: corners are squares, edges are grab strips along the whole side with a
+   square at their middle; all shown while the pointer is over the place */
+.nai-surface .nai-pos-h {
+    position: absolute;
+    z-index: 1;
+}
+
+.nai-surface .nai-pos-h::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 10px;
+    height: 10px;
+    margin: -5px 0 0 -5px;
+    border-radius: 2px;
+    background: var(--nai-char);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+    opacity: 0;
+    transition: opacity 0.1s;
+}
+
+.nai-surface .nai-pos-box:hover > .nai-pos-h::after {
+    opacity: 1;
+}
+
+.nai-surface .nai-pos-h[data-dir="n"], .nai-surface .nai-pos-h[data-dir="s"] { left: 8px; right: 8px; height: 10px; cursor: ns-resize; }
+.nai-surface .nai-pos-h[data-dir="e"], .nai-surface .nai-pos-h[data-dir="w"] { top: 8px; bottom: 8px; width: 10px; cursor: ew-resize; }
+.nai-surface .nai-pos-h[data-dir="n"] { top: -5px; }
+.nai-surface .nai-pos-h[data-dir="s"] { bottom: -5px; }
+.nai-surface .nai-pos-h[data-dir="w"] { left: -5px; }
+.nai-surface .nai-pos-h[data-dir="e"] { right: -5px; }
+.nai-surface .nai-pos-h:is([data-dir="nw"], [data-dir="ne"], [data-dir="sw"], [data-dir="se"]) { width: 12px; height: 12px; z-index: 2; }
+.nai-surface .nai-pos-h[data-dir="nw"] { left: -6px; top: -6px; cursor: nwse-resize; }
+.nai-surface .nai-pos-h[data-dir="ne"] { right: -6px; top: -6px; cursor: nesw-resize; }
+.nai-surface .nai-pos-h[data-dir="sw"] { left: -6px; bottom: -6px; cursor: nesw-resize; }
+.nai-surface .nai-pos-h[data-dir="se"] { right: -6px; bottom: -6px; cursor: nwse-resize; }
+
 /* Grid: NovelAI's 5x5 cells; a character is a dot at its cell's center */
-.nai-positions.nai-grid {
+.nai-surface.nai-grid {
     background-image:
         linear-gradient(to right, rgba(245, 243, 194, 0.35) 1px, transparent 1px),
         linear-gradient(to bottom, rgba(245, 243, 194, 0.35) 1px, transparent 1px);
     background-size: 20% 20%;
 }
 
-.nai-positions .nai-pos-dot {
+.nai-surface .nai-pos-dot {
     position: absolute;
-    width: 22px;
-    height: 22px;
-    margin: -11px 0 0 -11px;
+    width: 18px;
+    height: 18px;
+    margin: -9px 0 0 -9px;
     border-radius: 50%;
     border: 2px solid #fff;
     background: var(--nai-char);
     box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.45);
+    box-sizing: border-box;
     pointer-events: auto;
     touch-action: none;
     cursor: grab;
 }
 
-.nai-positions .nai-pos-dot .nai-pos-label {
-    left: 50%;
-    top: -26px;
-    transform: translateX(-50%);
-    border-radius: 6px;
-    white-space: nowrap;
+.nai-surface .nai-pos-dot > .nai-pos-label {
+    display: block;
+    top: -13px;
+    max-width: none;
 }
 
-.nai-positions .nai-pos-handle {
-    position: absolute;
-    right: -6px;
-    bottom: -6px;
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    background: var(--nai-char);
-    pointer-events: auto;
-    cursor: nwse-resize;
+.nai-surface .nai-pos-dot > .nai-pos-mark {
+    display: none;
 }
 
 /* x on a character's extra place (+ on the card adds one): removes just that place */
-.nai-positions .nai-pos-remove {
+.nai-surface .nai-pos-remove {
     position: absolute;
-    right: 0;
-    top: 0;
-    width: 18px;
-    height: 18px;
-    line-height: 16px;
+    right: 8px;
+    top: 8px;
+    width: 16px;
+    height: 16px;
+    line-height: 15px;
     text-align: center;
-    border-radius: 0 4px 0 6px;
+    border-radius: 50%;
     background: var(--nai-char);
     color: #fff;
+    font-size: 12px;
     font-weight: 700;
     text-shadow: 0 0 3px #000;
-    pointer-events: auto;
+    cursor: pointer;
+    opacity: 0;
+}
+
+.nai-surface .nai-pos-box:hover > .nai-pos-remove,
+.nai-surface .nai-pos-dot:hover > .nai-pos-remove {
+    opacity: 1;
+}
+
+.nai-surface .nai-pos-dot > .nai-pos-remove {
+    right: -18px;
+    top: -14px;
+}
+
+/* the small canvas: smaller marks */
+.nai-mini .nai-pos-label {
+    font-size: 9px;
+    line-height: 13px;
+    padding: 0 3px;
+}
+
+.nai-mini .nai-pos-h::after {
+    width: 7px;
+    height: 7px;
+    margin: -3.5px 0 0 -3.5px;
+}
+
+.nai-mini .nai-pos-remove {
+    right: 3px;
+    top: 3px;
+}
+
+.nai-mini .nai-pos-dot {
+    width: 12px;
+    height: 12px;
+    margin: -6px 0 0 -6px;
+}
+
+/* Reset, Switch and the two surface toggles, in the Characters header */
+.nai-panel .nai-tools-row {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.nai-panel .nai-tools-row button,
+.nai-panel .nai-tools-row select {
+    height: 26px;
+    padding: 0 9px;
+    border: 1px solid var(--nai-border);
+    border-radius: 999px;
+    background: var(--nai-input);
+    color: var(--nai-text);
+    font-size: 12px;
     cursor: pointer;
 }
 
-.nai-positions .nai-pos-dot .nai-pos-remove {
-    right: -20px;
-    top: -26px;
-    border-radius: 50%;
+.nai-panel .nai-tools-row select {
+    max-width: 120px;
+    padding: 0 6px;
+    border-radius: 6px;
+}
+
+.nai-panel .nai-tools-row button:hover {
+    border-color: var(--nai-gold-deep);
+}
+
+.nai-panel .nai-tools-row .nai-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.nai-panel .nai-switch-arrow {
+    color: var(--nai-muted);
+}
+
+.nai-panel .nai-tools-row .nai-toggle {
+    color: var(--nai-muted);
+}
+
+.nai-panel .nai-tools-row .nai-toggle.nai-on {
+    border-color: var(--nai-gold-deep);
+    color: var(--nai-gold);
 }
 
 /* "Stagehand": one fold-out holding both panels, saying what's active while it's closed */

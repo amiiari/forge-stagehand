@@ -118,9 +118,22 @@ the one-prompt image.
 
 ### Positions
 
-- **AI's Choice** is equal columns in card order. A version where the model places the
-  characters itself (a hidden preview pass plus person segmentation) lost: the segmentation
-  sees two overlapping people as one, which is exactly when it would matter.
+- **The default** ("AI's Choice") is equal columns in card order. A version where the model
+  places the characters itself (a hidden preview pass plus person segmentation) lost: the
+  segmentation sees two overlapping people as one, which is exactly when it would matter.
+- **No AI's Choice switch since 2026-10-08** (the user's call): a character never dragged
+  has an empty position field and stands in her column; dragging anyone writes positions, and
+  then it's hand placement as before (position words included). So an image nobody placed
+  comes out exactly as AI's Choice made it. `_auto` derives it; the arg stays for API callers
+  (true: positions count when given). Only a position of the current mode's kind counts.
+- **Editing** (stagehand.js "surfaces"): a small canvas per card (that character only) and
+  the output-image overlay draw the same places from one `live` drag state, so they move
+  together. A character's boxes are drawn as the union of their rectangles (coordinate-
+  compressed cells, an edge only between a covered and an uncovered cell), so touching or
+  overlapping places read as one shape; the name sits in the biggest piece, a dot in the
+  others. Undo records the fields an action changed (before / after, once the page settles)
+  and restores through the server (`_restore`), which owns which cards are shown -- undoing
+  a drag doesn't throw away text typed since.
 - **Grid**: each dot is a character's center; every spot of the image belongs to the nearest
   dot (a softmax over squared distances, `OWN_SIGMA` = 0.06, so the border blends narrowly).
   - Bunk beds with one character in C2 above the other in C4 came out right 3/3, where
@@ -239,6 +252,41 @@ went, a frown turned neutral. Stagehand wraps two of ADetailer's methods: `pred_
 - A failure in either wrapper falls back to ADetailer's own prompts; an ADetailer version
   without those methods gets a startup warning.
 
+### Character LoRAs (2026-10-08)
+
+Forge merges a LoRA into the weights, so a card's LoRA used to reach every character (its tags
+moved to the main prompt). `lib_stagehand/region_lora.py` keeps a card's LoRA out of the
+weights and adds its low-rank pair after each Linear of the DiT blocks' attention and MLP
+(instance-level `forward` hooks, installed with the block tags; a module global holds the
+model call's session, set by the Block wrapper). Two ways, a setting:
+
+- **Masked**: one model call; each image token's LoRA change is scaled by that character's
+  region weight (`RegionSession.weights`, the same as her prompt). The cross-attention's k/v
+  project text, not image tokens: they get her LoRA in full while projecting her own context
+  (`RegionSession._char_kv`), and none on the base context. Cost: a rank-r matmul pair and a
+  mask multiply per layer per LoRA; measured 1.3-1.45x the whole job (Python hooks, unfused).
+- **Separate pass**: Forge's `model_function_wrapper` runs the model once plain, then once per
+  LoRA'd character with that LoRA on everywhere, and blends each prediction in over her region
+  (token weights upsampled to the latent). Costs a full model call per LoRA'd character.
+
+Text-encoder halves: her texts are encoded again with `forge_objects.clip` swapped for a clone
+carrying the LoRA's TE patches, then swapped back. Checked: a plain image before and after a
+job with a TE LoRA is pixel-identical (the clone's patches come off). Note that Forge maps
+Anima TE keys as `lora_te_layers_*`; a LoRA saved as `lora_te1_layers_*` (Sally Whitemane's)
+has its TE half ignored everywhere, Forge's own loading included. A renamed copy proved the
+swap works (183k pixels changed).
+
+ADetailer: in the per-character modes the face prompt carries her LoRA tags, so Forge applies
+them whole to her face crop, and only hers. Only plain LoRA (no DoRA, LoKr, LoCon mid) on the
+blocks' Linears is applied; anything else is skipped with a console line.
+
+Blind test (the user's pipeline, 8 images: each pair of Sally Whitemane / Cissia / Fluorite and
+all three, 2 seeds; ranks best first): Masked mean 1.75 (5 firsts, 3 lasts), Separate pass 1.75
+(2 firsts, never last), Whole image 2.5 (1 first, 5 lasts). Masked's three lasts were all pairs
+with Cissia, whose LoRA looked off in every version ("overall inaccurate"); with all three girls
+Masked won both. Masked is the default: it ties, wins more often, and takes about half Separate
+pass's time.
+
 ### Metadata and the ⟦n⟧ markers
 
 - Before Set Queue and Dynamic Prompts run, the cards are merged into the prompt with `⟦n⟧`
@@ -322,9 +370,47 @@ About **1 s per image** (5.5 s vs 4.4 s at 768×1024, 30 steps, RTX 5090):
 - The adapter has one `ModelPatcher` for the process, so it isn't re-uploaded each run.
 
 Any pass *without* the LoRA does force that re-patch: another job in between, or an ADetailer
-face pass without "also in ADetailer". With it ticked, the face pass was ~3 s/image faster
+face pass without a card ticked for it. With one ticked, the face pass was ~3 s/image faster
 and kept the face closer to the reference (Fern's eyes stayed purple instead of drifting
 darker).
+
+### Per character, and which passes (2026-10-07)
+
+Every card used to go over the whole image, so two characters' references blended into one.
+Now a card is for the whole image or for one Character Prompts card:
+
+- **Sampling:** the card's injected output is multiplied, per token, by that character's
+  weight from `RegionSession.weights` -- the same blend her prompt gets, overlap shares
+  included. The adapter's output is added after the block and is linear in it, so this is a
+  clean mask (test_core `test_ip_target`). Hires reuses the regions, so it masks the same way.
+- **ADetailer:** Character Prompts already matches each detection to a character; it now does
+  so even when the ADetailer prompt doesn't use `[PROMPT]`, and tags the face's i2i with
+  `_nai_character`. A character's card goes to her face only, unmasked (the crop is hers).
+  Checked by pixels: the same image with Hsin's card ticked for ADetailer or not differed only
+  inside her face box (23.7k pixels), and 0 pixels on the other girl's side.
+- **Hires fix / ADetailer per card**, both off by default: a pose or composition card (the
+  "pointing" meme moved two girls into its layout) should shape the first pass and nothing
+  after. Batch Hires-Fix runs only Forge's hires pass, so it follows the Hires tick.
+- A card for a character the image doesn't have is skipped -- pixel-identical to no reference
+  (test_api).
+
+Blind test (2026-10-07; Hsin + the silhouette girl through txt2img -> hires -> ADetailer,
+ranked shuffled; `stagehand proof\Precise Reference\per-character blind test`, results.png):
+
+- **Character scenes** (beach, cafe, office x 2 seeds): the same order on all 6 images --
+  per-character first pass only, then per-character + hires + ADetailer, then no references,
+  then blended (the old way) last. Blended was worse than no references at all. One note:
+  the no-reference version "has the best style, but not accurate" (the references pull the
+  art style toward theirs too).
+- **Pointing scene** (the meme as a first-pass Style card at 0.5): "all really sucked" --
+  nothing looked like the meme's pose. Pose card + per-character first pass ranked best of a
+  bad set (1.5 of 5); pose card alone last. With Character Prompts' columns fixing the layout
+  and one reference per girl, the card didn't carry the composition; TEST03 (no characters,
+  same card) moved it only modestly. Consistent with the earlier finding that the adapter
+  carries looks, not composition. Not a pose tool; untested: a higher pose strength, or
+  without Character Prompts.
+
+So the defaults stay: per-character cards, first pass only.
 
 ### History
 

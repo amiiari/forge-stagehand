@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import uuid
 from pathlib import Path
 
@@ -38,16 +39,19 @@ REFERENCE_TYPES = tuple(TYPE_STRENGTH)
 # For people who've never used NovelAI: collapsed under the panel's title until asked for.
 HELP = """<details class="nai-help"><summary>How to use</summary><div>
 <ol>
-<li><b>+ Add reference</b> adds a card: an image of a character to keep (face, hair, outfit), an art style to copy, or
-a composition to follow. Up to 4 cards, all blended together -- e.g. the same character from several angles. Your
-prompt still sets the scene. For solo images or the whole image: two different characters' references blend into
-one character (NovelAI's do the same).</li>
+<li><b>+ Add reference</b> adds a card: an image of a character to keep (face, hair, outfit) or an art style to
+copy -- not a pose: it carries looks, not composition. Up to 4 cards, e.g. the same character from several angles.
+Your prompt still sets the scene. Cards for the whole image blend: two different characters' references there become one
+character (NovelAI's do the same) -- give each character her own cards instead (below).</li>
 <li><b>Type</b> only sets a starting Strength: 1.0 for Character and Character &amp; Style, 0.5 for Style.</li>
 <li><b>Strength:</b> how much of the reference goes in. 0 turns the card off; below 0 pushes away from it.</li>
 <li><b>Fidelity:</b> how hard the reference is to override with your prompt. Lower it if the prompt
 (pose, outfit) isn't being followed.</li>
-<li><b>also in ADetailer:</b> keeps the reference when ADetailer repaints faces, so the likeness holds better.
-Off by default.</li>
+<li><b>Whole image / Character N:</b> who the card is for. A character's card only goes into her part of the image
+(her Character Prompts card's place), so two characters can each have their own references. A card for a character
+who isn't in the image is skipped.</li>
+<li><b>Hires fix / ADetailer:</b> also use this card in that pass. Off: the card only shapes the first pass, which
+looked best in testing. In ADetailer, a character's card goes only to her own face. Both off by default.</li>
 </ol>
 <p>Clean images on plain backgrounds work best: a busy or dark background gets copied into the picture.
 Anima only.</p>
@@ -56,7 +60,33 @@ Anima only.</p>
 # Cards are pre-built and revealed by "+": Gradio can't add components at runtime.
 MAX_REFS = 4
 CARD_FIELDS = 4  # image, type, strength, fidelity
-INFOTEXT = ("image", "type", "strength", "fidelity")
+# per card, added after [cards..., ADetailer (the old panel-wide flag), on]: for, in Hires, in ADetailer
+EXTRA_FIELDS = 3
+TARGETS = ["Whole image"] + [f"Character {n}" for n in range(1, 7)]  # Character Prompts' 6 cards
+INFOTEXT = ("image", "type", "strength", "fidelity", "for", "hires", "ADetailer")
+
+
+def _target(value):
+    """'Character 2' (or 2, from an API caller) -> 2; anything else is the whole image."""
+    if isinstance(value, bool) or not isinstance(value, (str, int)):
+        return None
+    match = re.fullmatch(r"(?:Character )?(\d+)", str(value).strip())
+    return int(match[1]) if match else None
+
+
+def _cards(args):
+    """Per card: (image, type, strength, fidelity, target, in Hires, in ADetailer). Forge's
+    API pads an older caller's shorter list with the UI defaults (whole image, in neither
+    pass); its panel-wide ADetailer flag, when set, still puts every card in ADetailer."""
+    base = MAX_REFS * CARD_FIELDS
+    legacy = len(args) > base and bool(args[base])
+    extra = list(args[base + 2 :])
+    out = []
+    for i in range(MAX_REFS):
+        more = extra[i * EXTRA_FIELDS : (i + 1) * EXTRA_FIELDS]
+        target, hires, adetailer = more if len(more) == EXTRA_FIELDS else (None, False, False)
+        out.append(tuple(args[i * CARD_FIELDS : (i + 1) * CARD_FIELDS]) + (_target(target), bool(hires), bool(adetailer) or legacy))
+    return out
 
 
 # The browser never says where a dropped file came from (and Gradio hands over the pixels, not
@@ -111,15 +141,27 @@ def _enabled() -> bool:
     return bool(getattr(shared.opts, "stagehand_precise_reference", True))
 
 
+def _fill_defaults(params):
+    """What a card the PNG info doesn't spell out had. Images from before the per-card
+    options: every reference was in the hires pass, and in ADetailer's when "PR in
+    ADetailer" was set."""
+    legacy = str(params.get("PR in ADetailer", "False"))
+    for n in range(1, MAX_REFS + 1):
+        old = f"PR {n} image" in params and f"PR {n} hires" not in params
+        params.setdefault(f"PR {n} type", "Character")
+        params.setdefault(f"PR {n} strength", 1.0)
+        params.setdefault(f"PR {n} fidelity", 1.0)
+        params.setdefault(f"PR {n} for", TARGETS[0])
+        params.setdefault(f"PR {n} hires", "True" if old else "False")
+        params.setdefault(f"PR {n} ADetailer", legacy if old else "False")
+    return params
+
+
 def _defaults_on_paste(infotext, params):
     """Pasting restores the references exactly, including having none."""
     if "Steps" not in params or not _enabled():
         return
-    params.setdefault("PR in ADetailer", "False")
-    for i in range(MAX_REFS):
-        params.setdefault(f"PR {i + 1} type", "Character")
-        params.setdefault(f"PR {i + 1} strength", 1.0)
-        params.setdefault(f"PR {i + 1} fidelity", 1.0)
+    _fill_defaults(params)
 
 
 script_callbacks.on_infotext_pasted(_defaults_on_paste)
@@ -165,8 +207,8 @@ def _register_xyz() -> None:
 
 def _hook_adetailer() -> None:
     """ADetailer's face pass runs only the scripts named in its "Script names" setting. When
-    a generation ticks "also in ADetailer", this script joins that pass's filtered list for
-    that generation only -- the setting itself is never touched."""
+    a generation has a card ticked for ADetailer, this script joins that pass's filtered list
+    for that generation only -- the setting itself is never touched."""
     for data in scripts.scripts_data:
         cls = data.script_class
         if Path(data.path).stem != "!adetailer" or not hasattr(cls, "script_filter"):
@@ -200,7 +242,7 @@ def _remover(i):
         shown = list(shown)
         shown[i] = False
         # back to a fresh card, so the next "+" doesn't reopen the old settings
-        return shown, gr.update(visible=False), None, "Character", 1.0, 1.0
+        return shown, gr.update(visible=False), None, "Character", 1.0, 1.0, TARGETS[0], False, False
 
     return remove
 
@@ -226,6 +268,7 @@ class PreciseReference(scripts.Script):
     # javascript/stagehand.js moves the panel under the prompt boxes; a script
     # group would be left behind in the scripts column as an empty frame.
     create_group = False
+    cards = MAX_REFS  # forge link reads the arg layout from this
 
     def title(self):
         return "Precise Reference"
@@ -248,13 +291,15 @@ class PreciseReference(scripts.Script):
             on = gr.Checkbox(value=True, label="Precise Reference", elem_id=f"nai_{tab}_pr_on", elem_classes=["nai-hidden"])
             with gr.Row(elem_classes=["nai-head"]):
                 gr.HTML('<div class="nai-section">References</div>', elem_classes=["nai-title-cell"])
-                in_adetailer = gr.Checkbox(value=False, label="also in ADetailer", elem_id=f"nai_{tab}_pr_adetailer", elem_classes=["nai-auto"], scale=0, min_width=150)
+                # the old panel-wide "also in ADetailer": kept as an arg for API callers, now per card
+                in_adetailer = gr.Checkbox(value=False, visible=False)
                 gr.HTML('<span class="nai-hint">clean images on plain backgrounds work best</span>', elem_classes=["nai-title-cell"])
                 gr.HTML("", elem_classes=["nai-spacer"])  # pushes the add button to the right
                 add = gr.Button("+ Add reference", elem_classes=["nai-add"], min_width=40, scale=0)
             shown = gr.State([False] * MAX_REFS)
             cards = []
             buttons = [add]
+            extras = []
 
             for i in range(MAX_REFS):
                 with gr.Group(visible=False, elem_classes=["nai-card"]) as card:
@@ -281,57 +326,74 @@ class PreciseReference(scripts.Script):
                                     container=False,
                                     elem_id=f"nai_{tab}_pr{i + 1}_type",
                                 )
+                                target = gr.Dropdown(
+                                    TARGETS,
+                                    value=TARGETS[0],
+                                    show_label=False,
+                                    container=False,
+                                    elem_id=f"nai_{tab}_pr{i + 1}_for",
+                                    elem_classes=["nai-ref-for"],
+                                )
                                 remove = gr.Button("🗑", elem_classes=["nai-icon", "nai-remove-ref"], min_width=36, scale=0)
                             strength = gr.Slider(label="Strength", minimum=-1.0, maximum=2.0, step=0.01, value=1.0)
                             fidelity = gr.Slider(label="Fidelity", minimum=0.0, maximum=1.0, step=0.01, value=1.0)
+                            with gr.Row(elem_classes=["nai-ref-passes"]):
+                                hires = gr.Checkbox(value=False, label="Hires fix", elem_id=f"nai_{tab}_pr{i + 1}_hires", elem_classes=["nai-auto", "nai-ref-hires"], scale=0, min_width=110)
+                                adetailer = gr.Checkbox(value=False, label="ADetailer", elem_id=f"nai_{tab}_pr{i + 1}_adetailer", elem_classes=["nai-auto", "nai-ref-adetailer"], scale=0, min_width=110)
                 cards.append(card)
                 buttons.append(remove)
 
                 # .input, not .change: pasting infotext sets the type too, and .change would
                 # then overwrite the pasted strength with the type's default.
                 kind.input(fn=_type_strength, inputs=[kind], outputs=[strength], show_progress=False)
-                remove.click(fn=_remover(i), inputs=[shown], outputs=[shown, card, image, kind, strength, fidelity], show_progress=False)
+                remove.click(fn=_remover(i), inputs=[shown], outputs=[shown, card, image, kind, strength, fidelity, target, hires, adetailer], show_progress=False)
                 image.change(fn=_revealer(i), inputs=[image, shown], outputs=[shown, card], show_progress=False)
 
                 fields = [image, kind, strength, fidelity]
                 components += fields
+                extras += [target, hires, adetailer]
                 infotext += [
                     (image, lambda params, n=i + 1: _pasted_image(params, n)),
                     (kind, f"PR {i + 1} type"),
                     (strength, f"PR {i + 1} strength"),
                     (fidelity, f"PR {i + 1} fidelity"),
+                    (target, f"PR {i + 1} for"),
+                    (hires, f"PR {i + 1} hires"),
+                    (adetailer, f"PR {i + 1} ADetailer"),
                 ]
 
             add.click(fn=_add_card, inputs=[shown], outputs=[shown] + cards, show_progress=False)
             gr.HTML(HELP)
             components.append(in_adetailer)
-            for component in components + buttons:
+            for component in components + extras + buttons:
                 # ui-config.json keys come from a component's LABEL, so every card would
                 # collapse onto one entry -- and a saved entry overrides the code.
                 component.do_not_save_to_config = True
 
-        infotext.append((in_adetailer, "PR in ADetailer"))
         # pasting an image made with references switches the feature on
         infotext.append((on, lambda params: True if any(params.get(f"PR {n} image") for n in range(1, MAX_REFS + 1)) else None))
         self.infotext_fields = infotext
         self.paste_field_names = [label for _, label in infotext if isinstance(label, str)]
-        # [4 x (image, type, strength, fidelity), also in ADetailer, on/off]: added fields go last
-        return components + [on]
+        # [4 x (image, type, strength, fidelity), ADetailer (old, panel-wide), on/off,
+        #  4 x (for, in Hires, in ADetailer)]: added fields go last
+        return components + [on] + extras
 
     def args_from_infotext(self, params):
         """This script's args for re-running an image from its PNG info (the batch hires-fix
         tab calls this): its references come back from the kept copies. None if it had none."""
-        args, found = [], False
-        for i in range(MAX_REFS):
-            path = params.get(f"PR {i + 1} image")
+        params = _fill_defaults(dict(params))
+        args, extras, found = [], [], False
+        for n in range(1, MAX_REFS + 1):
+            path = params.get(f"PR {n} image")
             path = path if path and os.path.isfile(path) else None
             found = found or path is not None
             try:
-                strength, fidelity = float(params.get(f"PR {i + 1} strength", 1.0)), float(params.get(f"PR {i + 1} fidelity", 1.0))
+                strength, fidelity = float(params[f"PR {n} strength"]), float(params[f"PR {n} fidelity"])
             except (TypeError, ValueError):
                 strength, fidelity = 1.0, 1.0
-            args += [path, params.get(f"PR {i + 1} type", "Character"), strength, fidelity]
-        return args + [str(params.get("PR in ADetailer", "")) == "True", True] if found else None
+            args += [path, params[f"PR {n} type"], strength, fidelity]
+            extras += [params[f"PR {n} for"], str(params[f"PR {n} hires"]) == "True", str(params[f"PR {n} ADetailer"]) == "True"]
+        return args + [False, True] + extras if found else None
 
     def process_before_every_sampling(self, p, *args, **kwargs):
         # the previous pass's reference K/V (~224 MB each on the GPU) is done with
@@ -339,12 +401,8 @@ class PreciseReference(scripts.Script):
             old.clear()
         p._pr_sessions = []
         on = args[MAX_REFS * CARD_FIELDS + 1] if len(args) > MAX_REFS * CARD_FIELDS + 1 else True
-        cards = [args[i * CARD_FIELDS : (i + 1) * CARD_FIELDS] for i in range(MAX_REFS)]
+        cards = _cards(args)
         if on is False or not any(has_image(card[0]) for card in cards):
-            return
-        # ADetailer hands over every script when its "only selected scripts" is off:
-        # "also in ADetailer" unticked must still keep the reference out of the face pass
-        if getattr(p, "_ad_inner", False) and not (len(args) > MAX_REFS * CARD_FIELDS and args[MAX_REFS * CARD_FIELDS]):
             return
         overrides = getattr(p, "_pr_xyz", None) or getattr(getattr(p, "scripts", None), "_pr_xyz", None) or {}
         # A copied p (XYZ cells) shares extra_generation_params: start from a clean slate.
@@ -370,24 +428,64 @@ class PreciseReference(scripts.Script):
             print(f"[Precise Reference] the adapter has weights for {len(adapter.blocks)} blocks; this checkpoint has {len(blocks)} -- skipping.")
             return
 
+        # Which pass this is: the first, the hires fix's (Batch Hires-Fix runs only that one),
+        # or one of ADetailer's faces -- which hands over every script when its "only selected
+        # scripts" is off, so a card not ticked for it must be kept out here.
+        hr = bool(getattr(p, "is_hr_pass", False))
+        inner = bool(getattr(p, "_ad_inner", False))
+        face = getattr(p, "_nai_character", None)  # whose face, from Character Prompts' matching
+        numbers = (getattr(p, "_nai_chars", None) or {}).get("numbers") or []
+
         # Encode every card before recording any: one that fails must not leave the
-        # infotext claiming references that were never applied.
-        references, used = [], []
-        for i, (source, kind, strength, fidelity) in enumerate(cards):
+        # infotext claiming references that were never applied. Every card in use is
+        # recorded, also on a pass it sits out, so the image keeps all of them.
+        references, used, applied = [], [], []
+        for i, (source, kind, strength, fidelity, target, in_hires, in_adetailer) in enumerate(cards):
             image = _as_array(source)
             strength = float(overrides.get(f"{i}:strength", strength))
             fidelity = min(max(float(overrides.get(f"{i}:fidelity", fidelity)), 0.0), 1.0)
             if image is None or strength == 0.0:  # negative is meaningful (push away); zero is not
                 continue
-            # Fidelity is how much CFG amplifies the reference: at 1 only the positive pass
-            # sees it (hardest to override with the prompt), at 0 both passes do.
-            references.append(IPReference(adapter_runtime.reference_tokens(image), strength, strength * (1.0 - fidelity)))
             try:
                 path = _keep(image)
             except OSError as e:  # the reference still applies; only its PNG info path is lost
                 print(f"[Precise Reference] couldn't keep a copy of reference {i + 1}: {e!r}")
                 path = None
-            used.append((i, kind, strength, fidelity, path))
+            used.append((i, kind, strength, fidelity, path, target, in_hires, in_adetailer))
+            if (hr and not in_hires) or (inner and not in_adetailer):
+                continue
+            if inner and target is not None and target != face:
+                continue  # another character's face, or one no character owns
+            if not inner and target is not None and target not in numbers:
+                if not hr:
+                    note = f"reference {i + 1} is for Character {target}, who isn't in this image -- skipped"
+                    print(f"[Precise Reference] {note}")
+                    p.comment(f"Precise Reference: {note}")
+                continue
+            # Fidelity is how much CFG amplifies the reference: at 1 only the positive pass
+            # sees it (hardest to override with the prompt), at 0 both passes do. A face
+            # crop is all one character's, so there it goes everywhere.
+            tokens = adapter_runtime.reference_tokens(image)
+            references.append(IPReference(tokens, strength, strength * (1.0 - fidelity), None if inner else target))
+            applied.append((kind, strength, fidelity, target))
+        if not used:
+            return
+
+        if not inner:
+            # ADetailer's face pass runs only its selected scripts: _hook_adetailer adds this one.
+            # (A card in it: better likeness in testing, and ~3 s/image faster since the model
+            # isn't re-patched between passes.)
+            p._pr_in_adetailer = any(card[-1] for card in used)
+        for i, kind, strength, fidelity, path, target, in_hires, in_adetailer in used:
+            if path:
+                p.extra_generation_params[f"PR {i + 1} image"] = path
+            p.extra_generation_params[f"PR {i + 1} type"] = kind
+            p.extra_generation_params[f"PR {i + 1} strength"] = round(strength, 3)
+            p.extra_generation_params[f"PR {i + 1} fidelity"] = round(fidelity, 3)
+            if target is not None:
+                p.extra_generation_params[f"PR {i + 1} for"] = f"Character {target}"
+            p.extra_generation_params[f"PR {i + 1} hires"] = in_hires
+            p.extra_generation_params[f"PR {i + 1} ADetailer"] = in_adetailer
         if not references:
             return
 
@@ -411,19 +509,9 @@ class PreciseReference(scripts.Script):
         unet.set_transformer_option(anima_hooks.IP_KEY, session)
         p.sd_model.forge_objects.unet = unet
         p._pr_sessions = [session]
-        # Off by default. On: ADetailer's face pass gets the reference too (better likeness
-        # in testing, and ~3 s/image faster since the model isn't re-patched between passes).
-        p._pr_in_adetailer = len(args) > MAX_REFS * CARD_FIELDS and bool(args[MAX_REFS * CARD_FIELDS])
-
-        if p._pr_in_adetailer:
-            p.extra_generation_params["PR in ADetailer"] = True
-        for i, kind, strength, fidelity, path in used:
-            if path:
-                p.extra_generation_params[f"PR {i + 1} image"] = path
-            p.extra_generation_params[f"PR {i + 1} type"] = kind
-            p.extra_generation_params[f"PR {i + 1} strength"] = round(strength, 3)
-            p.extra_generation_params[f"PR {i + 1} fidelity"] = round(fidelity, 3)
-        print("[Precise Reference] " + ", ".join(f"{k} {s:+.2f} fid {f:.2f}" for _, k, s, f, _ in used))
+        where = "ADetailer" if inner else "hires" if hr else "first pass"
+        print(f"[Precise Reference] {where}: " + ", ".join(
+            f"{k} {s:+.2f} fid {f:.2f}" + (f" -> Character {t}" if t is not None else "") for k, s, f, t in applied))
 
     def postprocess_batch(self, p, *args, **kwargs):
         # each batch's sampling is over (ADetailer, which runs after this, makes its own)

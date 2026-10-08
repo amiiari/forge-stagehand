@@ -4,17 +4,24 @@
 //   while the fold-out is closed -- and an off feature's section is hidden;
 // - a prompt that carries characters -- Set Queue's "Restore template" (marked ⟦n⟧), or text
 //   pasted from an image's PNG info ("Character 1 (Ava): ...") -- is split into the cards;
-// - with "AI's Choice" off, the characters are placed by hand over the output image: Boxes
-//   (drag a box to move it, its corner to resize; "x0 y0 x1 y1", fractions of the image) or
-//   Grid (NovelAI V4.5's 5x5 grid: drag a dot to a cell; "C3"). The result lands in the
-//   card's hidden position field.
+// - the characters are placed on "surfaces": a small canvas beside each card (that character
+//   only) and an overlay on the output image (everyone), kept in sync. Boxes (drag a box from
+//   anywhere, resize by any edge or corner; "x0 y0 x1 y1", fractions of the image) or Grid
+//   (NovelAI V4.5's 5x5 grid: drag a dot to a cell; "C3"). The result lands in the card's
+//   hidden position field; an empty one is the default column (the old AI's Choice);
+// - Reset / Switch / the two surface toggles in the Characters header; Ctrl+Z / Ctrl+Y undo
+//   and redo position and card changes (outside text boxes).
 (() => {
     const TABS = [["txt2img", "t2i"], ["img2img", "i2i"]];
     const MAX = 6;
     const GRID = 5;
     const SHARE = 50; // a card's default overlap share (characters.SHARE)
     const FEATURES = [["chars", "Character Prompts"], ["pr", "Precise Reference"]];
-    let dragging = false;
+    const FACE_AUTO = "Face: auto"; // character_prompts.FACES[0]
+    const SVG = "http://www.w3.org/2000/svg";
+    const MINI = 200; // a card's canvas, long side in px
+    // the place being dragged: {id, n, j, value} -- every surface draws it live from this
+    let live = null;
 
     const el = (id) => gradioApp().getElementById(id);
     const field = (id) => el(id)?.querySelector("textarea, input");
@@ -129,18 +136,7 @@
         // an open fold-out with both features off would be empty: say why (style.css)
         // (a feature hidden in Settings has no checkbox at all, so it doesn't count as on)
         box.classList.toggle("nai-all-off", !FEATURES.some(([feature]) => checkbox(`nai_${id}_${feature}_on`)?.checked));
-        // the Boxes / Grid switch, and where the positions go, only matter with AI's Choice off
-        const auto = checkbox(`nai_${id}_chars_auto`)?.checked;
-        const manual = el(`nai_${id}_chars_manual`);
-        if (manual) manual.style.display = auto ? "none" : "";
-        const where = el(`nai_${id}_chars_where`);
-        if (where) where.style.display = auto ? "none" : "block";
-        // AI's Choice columns don't overlap, and place one per character: the overlap share and
-        // ＋ (another place) only show for hand placing
-        el(`nai_${id}_chars`)?.querySelectorAll(".nai-share, .nai-add-place").forEach((node) => {
-            const display = auto ? "none" : "";
-            if (node.style.display !== display) node.style.display = display;
-        });
+        syncTools(id);
     }
 
     // ------------------------------------------------------------------ prompts with characters in them
@@ -181,8 +177,8 @@
         return {base: lines.slice(0, first).join("\n").trimEnd(), chars};
     }
 
-    // exact: from a PNG info, the text is the whole story -- positions (or none: AI's Choice)
-    // and switched-on cards; a ⟦n⟧ template only carries the texts, the cards keep the rest
+    // exact: from a PNG info, the text is the whole story -- positions (or none: the default
+    // columns) and switched-on cards; a ⟦n⟧ template only carries the texts, the cards keep the rest
     function fill(tab, id, input, kind, parsed, exact) {
         // the pasted characters replace the cards: one the text doesn't mention is emptied
         for (let n = 1; n <= MAX; n++) {
@@ -202,13 +198,7 @@
         }
         if (kind === "prompt") {
             const places = Object.values(parsed.chars).map((c) => c.box).filter(Boolean);
-            const auto = checkbox(`nai_${id}_chars_auto`);
-            if (places.length) {
-                if (auto?.checked) auto.click();
-                setManual(id, places.some((p) => cell(p.split("+")[0])) ? "Grid" : "Boxes");
-            } else if (exact && auto && !auto.checked) {
-                auto.click();
-            }
+            if (places.length) setManual(id, places.some((p) => cell(p.split("+")[0])) ? "Grid" : "Boxes");
             const on = checkbox(`nai_${id}_chars_on`);
             if (on && !on.checked) on.click();
         }
@@ -296,8 +286,9 @@
         }
     }
 
-    // ＋ on a card: one more place for that character, beside its last one (a box shifted by its
-    // own width, or the next free cell), dragged from there like any other.
+    // ＋ on a card: one more place for that character beside its last one -- a half-size box (so
+    // it stands out from the merged outline instead of just widening it), or the next free
+    // cell -- dragged from there like any other.
     function addPlace(id, n) {
         const chars = characters(id);
         const k = chars.findIndex((c) => c.n === n);
@@ -314,9 +305,15 @@
             list.push(free || last);
         } else {
             const b = parse(last);
-            const w = b[2] - b[0];
-            const x = b[2] + w <= 1 ? b[2] : Math.max(0, b[0] - w);
-            list.push(boxText([x, b[1], Math.min(x + w, 1), b[3]]));
+            const w = Math.max((b[2] - b[0]) / 2, 0.05);
+            const h = Math.max((b[3] - b[1]) / 2, 0.05);
+            const clamp = (v, size) => Math.min(Math.max(v, 0), 1 - size);
+            // right of it, else left, else below, else above, else on its middle
+            const y = clamp((b[1] + b[3]) / 2 - h / 2, h);
+            const x = clamp((b[0] + b[2]) / 2 - w / 2, w);
+            const box = b[2] + w <= 1 ? [b[2], y] : b[0] - w >= 0 ? [b[0] - w, y]
+                : b[3] + h <= 1 ? [x, b[3]] : b[1] - h >= 0 ? [x, b[1] - h] : [x, y];
+            list.push(boxText([box[0], box[1], box[0] + w, box[1] + h]));
         }
         setValue(input, list.join(" + "));
     }
@@ -365,128 +362,420 @@
         return {gallery, left, top, width, height};
     }
 
-    // write = (text) => store the dragged place's new value (the j-th of its card's places)
-    function startDrag(event, div, write, mode, overlay) {
-        if (event.target.classList.contains("nai-pos-remove")) return;
+    // ------------------------------------------------------------------ surfaces
+    // The output-image overlay and each card's small canvas draw the same places; a drag on any
+    // of them sets `live`, and every surface redraws from it, so they move together.
+    const tabOf = (id) => TABS.find(([, i]) => i === id)[0];
+    const aspectOf = (id) => (parseFloat(field(`${tabOf(id)}_width`)?.value) || 1024) / (parseFloat(field(`${tabOf(id)}_height`)?.value) || 1024);
+
+    // a character's places as shapes -- boxes [x0, y0, x1, y1], or grid points [x, y] (cell
+    // centers) -- with the one being dragged where the pointer has it
+    function shapesOf(id, c, grid, k, count) {
+        const list = ownPlaces(c.input, grid, k, count).map((v) => {
+            if (!grid) return parse(v);
+            const at = cell(v);
+            return [(at[0] + 0.5) / GRID, (at[1] + 0.5) / GRID];
+        });
+        if (live && live.id === id && live.n === c.n && live.j < list.length) list[live.j] = live.value;
+        return list;
+    }
+
+    // Stores a dropped place: the j-th of character n's places (the others read at drop time).
+    function writePlace(id, n, j, text) {
+        const chars = characters(id);
+        const k = chars.findIndex((c) => c.n === n);
+        if (k < 0) return;
+        const now = ownPlaces(chars[k].input, manualOf(id) === "Grid", k, chars.length);
+        now[j] = text;
+        setValue(chars[k].input, now.join(" + "));
+    }
+
+    let frameRequested = false;
+    function redraw(id) {
+        if (frameRequested) return;
+        frameRequested = true;
+        requestAnimationFrame(() => {
+            frameRequested = false;
+            render(tabOf(id), id);
+        });
+    }
+
+    // mode: "move", "dot", or the edges a handle moves ("n", "se", ...)
+    function startDrag(event, surface, id, n, j, mode, start) {
+        if (event.button || event.target.classList.contains("nai-pos-remove")) return;
         event.preventDefault();
         event.stopPropagation();
-        dragging = true;
-        const start = mode === "dot" ? JSON.parse(div.dataset.at) : JSON.parse(div.dataset.box);
+        track(id);
         const x0 = event.clientX;
         const y0 = event.clientY;
-        const W = overlay.clientWidth;
-        const H = overlay.clientHeight;
-        let box = start.slice();
+        const W = surface.clientWidth;
+        const H = surface.clientHeight;
+        const MIN = 0.05;
+        live = {id, n, j, value: start.slice()};
         const move = (e) => {
             const dx = (e.clientX - x0) / W;
             const dy = (e.clientY - y0) / H;
+            let [a, b, c, d] = start;
             if (mode === "dot") {
-                box = [Math.min(Math.max(start[0] + dx, 0), 0.999), Math.min(Math.max(start[1] + dy, 0), 0.999)];
-                placeDot(div, box);
+                live.value = [Math.min(Math.max(a + dx, 0), 0.999), Math.min(Math.max(b + dy, 0), 0.999)];
             } else if (mode === "move") {
-                const w = start[2] - start[0];
-                const h = start[3] - start[1];
-                const x = Math.min(Math.max(start[0] + dx, 0), 1 - w);
-                const y = Math.min(Math.max(start[1] + dy, 0), 1 - h);
-                box = [x, y, x + w, y + h];
-                place(div, box);
+                const x = Math.min(Math.max(a + dx, 0), 1 - (c - a));
+                const y = Math.min(Math.max(b + dy, 0), 1 - (d - b));
+                live.value = [x, y, x + (c - a), y + (d - b)];
             } else {
-                box = [start[0], start[1], Math.min(Math.max(start[2] + dx, start[0] + 0.05), 1), Math.min(Math.max(start[3] + dy, start[1] + 0.05), 1)];
-                place(div, box);
+                if (mode.includes("w")) a = Math.min(Math.max(a + dx, 0), c - MIN);
+                if (mode.includes("e")) c = Math.max(Math.min(c + dx, 1), a + MIN);
+                if (mode.includes("n")) b = Math.min(Math.max(b + dy, 0), d - MIN);
+                if (mode.includes("s")) d = Math.max(Math.min(d + dy, 1), b + MIN);
+                live.value = [a, b, c, d];
             }
+            redraw(id);
         };
         const up = () => {
             window.removeEventListener("pointermove", move);
             window.removeEventListener("pointerup", up);
-            dragging = false;
+            const v = live.value;
+            const moved = v.some((x, i) => x !== start[i]);
+            live = null;
             // a dot snaps to the cell it was dropped in
-            write(mode === "dot" ? cellOf(box[0], box[1]) : boxText(box));
+            if (moved) writePlace(id, n, j, mode === "dot" ? cellOf(v[0], v[1]) : boxText(v));
+            redraw(id);
         };
         window.addEventListener("pointermove", move);
         window.addEventListener("pointerup", up);
     }
 
+    const pct = (v) => `${v * 100}%`;
+
     function place(div, box) {
-        div.dataset.box = JSON.stringify(box);
-        div.style.left = `${box[0] * 100}%`;
-        div.style.top = `${box[1] * 100}%`;
-        div.style.width = `${(box[2] - box[0]) * 100}%`;
-        div.style.height = `${(box[3] - box[1]) * 100}%`;
+        div.style.left = pct(box[0]);
+        div.style.top = pct(box[1]);
+        div.style.width = pct(box[2] - box[0]);
+        div.style.height = pct(box[3] - box[1]);
     }
 
-    function placeDot(div, at) {
-        div.dataset.at = JSON.stringify(at);
-        div.style.left = `${at[0] * 100}%`;
-        div.style.top = `${at[1] * 100}%`;
+    // One character's boxes as one shape: the cells of the grid their edges make, filled where
+    // a box covers them, with an outline only between a covered cell and an uncovered one -- so
+    // touching or overlapping places read as one continuous shape, in SVG path data (0-100).
+    function union(boxes) {
+        const xs = [...new Set(boxes.flatMap((b) => [b[0], b[2]]))].sort((a, b) => a - b);
+        const ys = [...new Set(boxes.flatMap((b) => [b[1], b[3]]))].sort((a, b) => a - b);
+        const covered = ys.slice(1).map((_, r) => xs.slice(1).map((_, q) => {
+            const cx = (xs[q] + xs[q + 1]) / 2;
+            const cy = (ys[r] + ys[r + 1]) / 2;
+            return boxes.some((b) => b[0] < cx && cx < b[2] && b[1] < cy && cy < b[3]);
+        }));
+        const on = (q, r) => r >= 0 && r < covered.length && q >= 0 && q < covered[r].length && covered[r][q];
+        const P = (v) => (v * 100).toFixed(2);
+        let fill = "";
+        let line = "";
+        covered.forEach((row, r) => row.forEach((c, q) => {
+            if (!c) return;
+            const [l, t, rt, bt] = [P(xs[q]), P(ys[r]), P(xs[q + 1]), P(ys[r + 1])];
+            fill += `M${l} ${t}H${rt}V${bt}H${l}Z`;
+            if (!on(q, r - 1)) line += `M${l} ${t}H${rt}`;
+            if (!on(q, r + 1)) line += `M${l} ${bt}H${rt}`;
+            if (!on(q - 1, r)) line += `M${l} ${t}V${bt}`;
+            if (!on(q + 1, r)) line += `M${rt} ${t}V${bt}`;
+        }));
+        return [fill, line];
     }
 
-    function render(tab, id) {
-        if (dragging) return;
-        let overlay = el(`nai_${id}_positions`);
-        const auto = checkbox(`nai_${id}_chars_auto`);
-        const chars = characters(id);
-        const open = el(`nai_${id}_stagehand`)?.open;
-        const f = open && auto && !auto.checked && chars.length ? frame(tab) : null;
-        if (!f) {
-            if (overlay) overlay.style.display = "none";
-            return;
-        }
-        if (!overlay || overlay.parentElement !== f.gallery) {
-            overlay?.remove();
-            overlay = document.createElement("div");
-            overlay.id = `nai_${id}_positions`;
-            f.gallery.style.position = "relative";
-            f.gallery.appendChild(overlay);
-        }
-        const grid = manualOf(id) === "Grid";
-        overlay.className = grid ? "nai-positions nai-grid" : "nai-positions";
-        Object.assign(overlay.style, {display: "", left: `${f.left}px`, top: `${f.top}px`, width: `${f.width}px`, height: `${f.height}px`});
+    const HANDLES = ["n", "s", "e", "w", "ne", "nw", "se", "sw"];
 
+    // Draws characters on a surface: everyone (the overlay) or one (`only`, a card's canvas).
+    // Elements are keyed, so the one under the pointer survives every redraw.
+    function drawSurface(surface, id, chars, grid, only) {
+        surface.classList.toggle("nai-grid", grid);
+        let svg = surface.querySelector(":scope > svg");
+        if (!svg) {
+            svg = document.createElementNS(SVG, "svg");
+            svg.setAttribute("viewBox", "0 0 100 100");
+            svg.setAttribute("preserveAspectRatio", "none");
+            surface.prepend(svg);
+        }
         const keep = new Set();
+        let paths = "";
         chars.forEach((c, k) => {
-            const kind = grid ? "dot" : "box";
-            // no saved position yet: AI's Choice columns / the middle row, as the backend does
-            const list = ownPlaces(c.input, grid, k, chars.length);
-            list.forEach((value, j) => {
-                const key = `${kind}${c.n}_${j}`;
+            if (only && c.n !== only) return;
+            const shapes = shapesOf(id, c, grid, k, chars.length);
+            const remove = '<span class="nai-pos-remove" title="Remove this place">×</span>';
+            if (!grid) {
+                const [fill, line] = union(shapes);
+                paths += `<path class="nai-union-fill nai-c${c.n}" d="${fill}"/><path class="nai-union-line nai-c${c.n}" d="${line}"/>`;
+            }
+            // the name once, small, in the middle of the biggest piece; a dot marks the others
+            const area = (b) => (b[2] - b[0]) * (b[3] - b[1]);
+            const big = grid ? 0 : shapes.reduce((best, b, j) => (area(b) > area(shapes[best]) ? j : best), 0);
+            shapes.forEach((shape, j) => {
+                const key = `${grid ? "dot" : "box"}${c.n}_${j}`;
                 keep.add(key);
-                let div = overlay.querySelector(`[data-key="${key}"]`);
+                let div = surface.querySelector(`:scope > [data-key="${key}"]`);
                 if (!div) {
                     div = document.createElement("div");
                     div.dataset.key = key;
-                    // reads the field at drop time: other places of the card may have moved since
-                    const write = (text) => {
-                        const now = ownPlaces(c.input, grid, k, characters(id).length);
-                        now[j] = text;
-                        setValue(c.input, now.join(" + "));
-                    };
-                    const remove = '<span class="nai-pos-remove" title="Remove this place">×</span>';
-                    if (grid) {
-                        div.className = `nai-pos-dot nai-c${c.n}`;
-                        div.innerHTML = `<span class="nai-pos-label"></span>${j ? remove : ""}`;
-                        div.addEventListener("pointerdown", (e) => startDrag(e, div, write, "dot", overlay));
-                    } else {
-                        div.className = `nai-pos-box nai-c${c.n}`;
-                        div.innerHTML = `<span class="nai-pos-label"></span>${j ? remove : ""}<span class="nai-pos-handle"></span>`;
-                        div.addEventListener("pointerdown", (e) => startDrag(e, div, write, e.target.classList.contains("nai-pos-handle") ? "resize" : "move", overlay));
-                    }
+                    div.className = `${grid ? "nai-pos-dot" : "nai-pos-box"} nai-c${c.n}`;
+                    div.innerHTML = '<span class="nai-pos-label"></span><span class="nai-pos-mark"></span>'
+                        + (j ? remove : "") + (grid ? "" : HANDLES.map((h) => `<span class="nai-pos-h" data-dir="${h}"></span>`).join(""));
+                    div.addEventListener("pointerdown", (e) => {
+                        const now = shapesOf(id, c, manualOf(id) === "Grid", characters(id).findIndex((x) => x.n === c.n), characters(id).length)[j];
+                        if (now) startDrag(e, surface, id, c.n, j, grid ? "dot" : e.target.dataset.dir || "move", now);
+                    });
                     div.querySelector(".nai-pos-remove")?.addEventListener("click", (e) => {
                         e.stopPropagation();
-                        removePlace(c.input, grid, k, characters(id).length, j);
+                        track(id);
+                        const all = characters(id);
+                        const at = all.findIndex((x) => x.n === c.n);
+                        if (at >= 0) removePlace(all[at].input, manualOf(id) === "Grid", at, all.length, j);
                     });
-                    overlay.appendChild(div);
+                    surface.appendChild(div);
                 }
                 if (grid) {
-                    const at = cell(value);
-                    setText(div.querySelector(".nai-pos-label"), `${c.label} · ${cellName(at[0], at[1])}`);
-                    placeDot(div, [(at[0] + 0.5) / GRID, (at[1] + 0.5) / GRID]);
+                    div.style.left = pct(shape[0]);
+                    div.style.top = pct(shape[1]);
+                    setText(div.querySelector(".nai-pos-label"), `${c.label} · ${cellOf(shape[0], shape[1])}`);
                 } else {
+                    place(div, shape);
+                    div.classList.toggle("nai-labelled", j === big);
                     setText(div.querySelector(".nai-pos-label"), c.label);
-                    place(div, parse(value));
                 }
             });
         });
-        overlay.querySelectorAll("[data-key]").forEach((d) => keep.has(d.dataset.key) || d.remove());
+        if (svg.dataset.paths !== paths) {
+            svg.dataset.paths = paths;
+            svg.innerHTML = paths;
+        }
+        surface.querySelectorAll(":scope > [data-key]").forEach((d) => keep.has(d.dataset.key) || d.remove());
+    }
+
+    // the two surface toggles, on unless switched off (remembered per browser)
+    const toggledOn = (id, what) => {
+        try {
+            return localStorage.getItem(`stagehand-${what}-${id}`) !== "0";
+        } catch (e) {
+            return true;
+        }
+    };
+
+    function render(tab, id) {
+        const chars = characters(id);
+        const open = el(`nai_${id}_stagehand`)?.open;
+        const grid = manualOf(id) === "Grid";
+
+        // the output image
+        let overlay = el(`nai_${id}_positions`);
+        const f = open && chars.length && toggledOn(id, "image") ? frame(tab) : null;
+        if (!f) {
+            if (overlay) overlay.style.display = "none";
+        } else {
+            if (!overlay || overlay.parentElement !== f.gallery) {
+                overlay?.remove();
+                overlay = document.createElement("div");
+                overlay.id = `nai_${id}_positions`;
+                overlay.className = "nai-surface nai-positions";
+                f.gallery.style.position = "relative";
+                f.gallery.appendChild(overlay);
+            }
+            Object.assign(overlay.style, {display: "", left: `${f.left}px`, top: `${f.top}px`, width: `${f.width}px`, height: `${f.height}px`});
+            drawSurface(overlay, id, chars, grid);
+        }
+
+        // each card's own canvas, the image's shape, MINI px on its long side
+        const aspect = aspectOf(id);
+        const [w, h] = aspect >= 1 ? [MINI, MINI / aspect] : [MINI * aspect, MINI];
+        const canvases = open && toggledOn(id, "canvases");
+        for (let n = 1; n <= MAX; n++) {
+            const card = el(`nai_${id}_char${n}`);
+            if (!card) continue;
+            let mini = card.querySelector(":scope > .nai-mini");
+            const on = canvases && chars.some((c) => c.n === n);
+            card.classList.toggle("nai-has-mini", !!on);
+            if (!on) {
+                mini?.remove();
+                continue;
+            }
+            if (!mini) {
+                mini = document.createElement("div");
+                mini.className = "nai-surface nai-mini";
+                card.appendChild(mini);
+            }
+            if (mini.style.width !== `${w}px` || mini.style.height !== `${h}px`) Object.assign(mini.style, {width: `${w}px`, height: `${h}px`});
+            card.style.setProperty("--nai-mini-w", `${w}px`);
+            card.style.setProperty("--nai-mini-h", `${h}px`);
+            drawSurface(mini, id, chars, grid, n);
+        }
+    }
+
+    // ------------------------------------------------------------------ Reset, Switch, toggles
+    function tools(id) {
+        const host = el(`nai_${id}_chars_tools`);
+        if (!host || host.querySelector(".nai-tools-row")) return;
+        const row = document.createElement("span");
+        row.className = "nai-tools-row";
+        row.innerHTML = '<button type="button" class="nai-tool nai-reset">↺ Reset</button>'
+            + '<span class="nai-switch"><select class="nai-switch-a"></select><span class="nai-switch-arrow">⇄</span>'
+            + '<select class="nai-switch-b"></select><button type="button" class="nai-tool nai-switch-go">Switch</button></span>'
+            + '<button type="button" class="nai-toggle" data-what="canvases">▣ canvases</button>'
+            + '<button type="button" class="nai-toggle" data-what="image">▣ on image</button>';
+        host.appendChild(row);
+        row.querySelector(".nai-reset").addEventListener("click", () => {
+            track(id);
+            // every card, also those off or empty, so none keeps a place to come back with
+            for (let n = 1; n <= MAX; n++) setValue(field(`nai_${id}_char${n}_box`), "");
+        });
+        row.querySelector(".nai-switch-go").addEventListener("click", () => {
+            const a = Number(row.querySelector(".nai-switch-a").value);
+            const b = Number(row.querySelector(".nai-switch-b").value);
+            const chars = characters(id);
+            const ka = chars.findIndex((c) => c.n === a);
+            const kb = chars.findIndex((c) => c.n === b);
+            if (ka < 0 || kb < 0 || ka === kb) return;
+            track(id);
+            // written out, defaults included: their columns follow card order, not the card
+            const grid = manualOf(id) === "Grid";
+            const pa = ownPlaces(chars[ka].input, grid, ka, chars.length);
+            const pb = ownPlaces(chars[kb].input, grid, kb, chars.length);
+            setValue(chars[ka].input, pb.join(" + "));
+            setValue(chars[kb].input, pa.join(" + "));
+        });
+        row.querySelectorAll(".nai-toggle").forEach((button) => button.addEventListener("click", () => {
+            try {
+                localStorage.setItem(`stagehand-${button.dataset.what}-${id}`, toggledOn(id, button.dataset.what) ? "0" : "1");
+            } catch (e) {}
+            syncTools(id);
+            render(tabOf(id), id);
+        }));
+    }
+
+    function syncTools(id) {
+        const row = el(`nai_${id}_chars_tools`)?.querySelector(".nai-tools-row");
+        if (!row) return;
+        row.querySelectorAll(".nai-toggle").forEach((button) => {
+            const on = toggledOn(id, button.dataset.what);
+            button.classList.toggle("nai-on", on);
+            if (button.getAttribute("aria-pressed") !== String(on)) button.setAttribute("aria-pressed", String(on));
+        });
+        // the switch lists the characters as they are; a pick that's gone falls back to 1st / 2nd
+        const chars = characters(id);
+        const options = chars.map((c) => `<option value="${c.n}">${c.label.replace(/[&<>"]/g, (ch) => `&#${ch.charCodeAt(0)};`)}</option>`).join("");
+        const sw = row.querySelector(".nai-switch");
+        sw.style.display = chars.length >= 2 ? "" : "none";
+        ["a", "b"].forEach((which, i) => {
+            const select = row.querySelector(`.nai-switch-${which}`);
+            if (select.dataset.options !== options) {
+                const kept = select.value;
+                select.dataset.options = options;
+                select.innerHTML = options;
+                select.value = chars.some((c) => String(c.n) === kept) ? kept : String(chars[i]?.n ?? "");
+            }
+        });
+    }
+
+    // ------------------------------------------------------------------ undo / redo
+    // An action (a drag, Reset, Switch, a card button) records the fields it changed, before and
+    // after, once the page settles (card buttons go through the server). Undo puts back only
+    // those, so text typed since stays; the whole state is restored through the server
+    // (_restore), which also owns which cards are shown.
+    const undoLog = {};
+    const hist = (id) => (undoLog[id] ??= {undo: [], redo: [], pending: null});
+
+    function snapshot(id) {
+        const out = {manual: manualOf(id)};
+        for (let n = 1; n <= MAX; n++) {
+            const card = el(`nai_${id}_char${n}`);
+            const p = `c${n}.`;
+            out[p + "visible"] = !!card && getComputedStyle(card).display !== "none";
+            out[p + "enabled"] = card?.querySelector(".nai-char-on input")?.checked ?? true;
+            out[p + "name"] = card?.querySelector(".nai-char-name input, .nai-char-name textarea")?.value ?? "";
+            out[p + "prompt"] = field(`nai_${id}_char${n}_prompt`)?.value ?? "";
+            out[p + "uc"] = field(`nai_${id}_char${n}_uc`)?.value ?? "";
+            out[p + "box"] = field(`nai_${id}_char${n}_box`)?.value ?? "";
+            out[p + "face"] = card?.querySelector(".nai-char-face input")?.value || FACE_AUTO;
+            out[p + "share"] = Number(field(`nai_${id}_char${n}_share`)?.value ?? SHARE);
+        }
+        return out;
+    }
+
+    const changed = (a, b) => Object.keys(a).filter((k) => a[k] !== b[k]);
+
+    function track(id) {
+        const h = hist(id);
+        if (h.pending) settle(id, true);
+        h.pending = {before: snapshot(id), since: Date.now(), last: null, stable: 0};
+    }
+
+    // closes the pending action once nothing has changed for a moment (or now, when forced)
+    function settle(id, force) {
+        const h = hist(id);
+        const p = h.pending;
+        if (!p || (live && live.id === id && !force)) return;
+        const now = snapshot(id);
+        const keys = changed(p.before, now);
+        if (!force) {
+            if (!keys.length) {
+                if (Date.now() - p.since > 4000) h.pending = null; // the action changed nothing
+                return;
+            }
+            if (!p.last || changed(p.last, now).length) {
+                p.last = now;
+                p.stable = Date.now();
+                return;
+            }
+            if (Date.now() - p.stable < 350) return;
+        }
+        h.pending = null;
+        if (!keys.length) return;
+        const entry = {before: {}, after: {}};
+        keys.forEach((k) => {
+            entry.before[k] = p.before[k];
+            entry.after[k] = now[k];
+        });
+        h.undo.push(entry);
+        if (h.undo.length > 100) h.undo.shift();
+        h.redo = [];
+    }
+
+    function restore(id, values) {
+        const state = {...snapshot(id), ...values};
+        const cards = [];
+        for (let n = 1; n <= MAX; n++) {
+            const card = {};
+            for (const key of ["visible", "enabled", "name", "prompt", "uc", "box", "face", "share"]) card[key] = state[`c${n}.${key}`];
+            cards.push(card);
+        }
+        setValue(field(`nai_${id}_chars_restore`), JSON.stringify({manual: state.manual, cards, at: Date.now()}));
+    }
+
+    function step(id, back) {
+        const h = hist(id);
+        settle(id, true);
+        const entry = (back ? h.undo : h.redo).pop();
+        if (!entry) return false;
+        (back ? h.redo : h.undo).push(entry);
+        restore(id, back ? entry.before : entry.after);
+        return true;
+    }
+
+    // which tab's Stagehand is on screen
+    const activeId = () => TABS.map(([, id]) => id).find((id) => el(`nai_${id}_stagehand`)?.offsetParent);
+
+    function undoKeys() {
+        document.addEventListener("keydown", (e) => {
+            if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+            const key = e.key.toLowerCase();
+            if (key !== "z" && key !== "y") return;
+            // a text box keeps its own undo
+            if (e.target.closest?.("textarea, select, [contenteditable=''], [contenteditable=true], input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=button])")) return;
+            const id = activeId();
+            if (id && step(id, key === "z" && !e.shiftKey)) e.preventDefault();
+        });
+    }
+
+    // the card buttons and the Boxes / Grid switch are actions too
+    function trackCards(id) {
+        el(`nai_${id}_chars`)?.addEventListener("click", (e) => {
+            if (e.target.closest?.(".nai-add, .nai-remove, .nai-up, .nai-down, .nai-copy, .nai-add-place, .nai-char-on, .nai-manual input")) track(id);
+        }, true);
     }
 
     // Tag Autocomplete (when installed) only finds the main prompt boxes, so the cards' boxes
@@ -529,15 +818,20 @@
             ".nai-save-preset": "Save this character as a preset under its name (saving again updates it). Newlines are kept.",
             ".nai-preset": "Character presets: pick one, then + Add character adds a card filled with it",
             ".nai-delete-preset": "Delete the selected preset",
-            ".nai-up": "Move this character up (earlier = further left with AI's Choice)",
-            ".nai-down": "Move this character down (later = further right with AI's Choice)",
+            ".nai-up": "Move this character up (earlier = further left in the default columns)",
+            ".nai-down": "Move this character down (later = further right in the default columns)",
             ".nai-copy": "Duplicate this character",
             ".nai-add-place": "Another place for this character (the same card in each): multi-angle sheets, complex compositions. × on a place removes it",
             ".nai-remove": "Delete this character",
             ".nai-remove-ref": "Remove this reference",
-            [`#nai_${id}_chars_auto`]: "On: the characters stand left to right in card order. Off: place them yourself, on the output image",
+            ".nai-ref-for": "Who this reference is for: the whole image, or one Character Prompts card (only her part of the image, and her face in ADetailer)",
+            ".nai-ref-hires": "Also use this reference in the hires fix pass. Off: it only shapes the first pass (looked best in testing)",
+            ".nai-ref-adetailer": "Also use this reference in ADetailer's face pass. A character's reference goes only to her own face",
             [`#nai_${id}_chars_manual`]: "Boxes: drag and resize a box per character. Grid: NovelAI's 5x5 grid, a dot where each character's head goes",
-            [`#nai_${id}_pr_adetailer`]: "Also use the references in ADetailer's face pass, for this generation",
+            ".nai-reset": "Everyone back in the default columns, left to right in card order (Ctrl+Z undoes it)",
+            ".nai-switch": "Swap two characters' places",
+            ".nai-toggle[data-what=canvases]": "Show or hide the small canvas beside each character",
+            ".nai-toggle[data-what=image]": "Show or hide the boxes over the output image (hide them to click the picture)",
         };
         const box = el(`nai_${id}_stagehand`);
         for (const [selector, tip] of Object.entries(tips)) {
@@ -549,6 +843,8 @@
         for (const [tab, id] of TABS) {
             wrap(tab, id);
             splitOnPaste(tab, id);
+            tools(id);
+            trackCards(id);
             el(`nai_${id}_chars_manual`)?.querySelectorAll("input[type=radio]").forEach((radio) => {
                 radio.addEventListener("change", () => radio.checked && convert(id, radio.value));
             });
@@ -559,8 +855,10 @@
             // open isn't the list as it was when Forge started
             el(`nai_${id}_chars_preset`)?.querySelector("input")?.dispatchEvent(new Event("blur"));
         }
+        undoKeys();
+        setInterval(() => TABS.forEach(([, id]) => settle(id)), 100);
         // Cheap and robust against everything that can change the layout (cards, toggles,
-        // a new image, resizing); positions aren't re-placed while one is being dragged.
+        // a new image, resizing); a drag redraws on its own (redraw).
         setInterval(() => {
             TABS.forEach(([tab, id]) => {
                 unmerge(tab, id);

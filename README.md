@@ -25,7 +25,6 @@ got myself after hours of A/B testing so yes! feel free to edit those if you'd l
 
 some things you should know:
 - THIS ONLY WORKS FOR ANIMA !!!!!!!!!!!!!!!!!!!!!!!!!!
-- precise reference will not work well i think? with 2+ characters so just know that too
 - this extension is definitely not perfect!!! just keep that in mind!
 
 ## thank you for visiting! and using even?! i hope this repo ends up being useful to you.
@@ -38,6 +37,11 @@ i'd rather not type LMAO
 **Settings → Stagehand → Precise Reference**: untick it (then Reload UI) to remove Precise
 Reference completely: its section and pill under the prompt, its paste handling, its XYZ Plot
 axes and its ADetailer hook. Character Prompts is unaffected.
+
+**Character Prompts: read each card together with the main prompt**, **card strength**: how
+cards are read (see NOTES.md, "The card look"). **LoRAs typed in a card**: Masked (the default)
+or Separate pass (only her), or Whole image (every character gets them, Forge's usual; see
+"Works with" below). All three can be set per API request with `override_settings`.
 
 ## Install
 
@@ -78,10 +82,12 @@ extension keeps them.
 
 ### Positions
 
-- **AI's Choice** (default): equal columns, left to right in card order.
-- **Turn it off** to place the characters yourself, in one of two ways (the switch next to
-  AI's Choice; switching keeps each character where it was):
-  - **Boxes**: drag a box by its name tab to move it, by its corner dot to resize. Boxes may
+- **By default** the characters stand in equal columns, left to right in card order.
+- **Drag one to place it yourself**: on the small canvas beside its card (that character
+  only) or on the output image (everyone); the two stay in sync. A character you never
+  dragged stays in her default column. Two ways (the Boxes / Grid switch; switching keeps each
+  character where it was):
+  - **Boxes**: drag a box from anywhere on it, resize it by any edge or corner. Boxes may
     overlap; the overlap is shared, by each card's **Overlap share %**.
   - **Grid**: NovelAI's 5×5 grid. Each character is a dot that snaps to a cell. Every part of
     the image belongs to the nearest dot, so stacked or diagonal dots give layouts columns
@@ -90,13 +96,19 @@ extension keeps them.
     - Give each character its own cell; two on one cell merge.
     - A lone character's dot only changes the position words ("a girl on the left"). Use
       Boxes to confine one.
-- **More than one place for a character** (with AI's Choice off): **＋** on her card adds
-  another box (or dot, in Grid) beside her last one; drag it like any other, **×** on it
-  removes it. Every place reads the same card. For multi-angle sheets (full body on the left,
+- **Reset** puts everyone back in the default columns; **Switch** swaps two characters'
+  places; **canvases** / **on image** show or hide the two kinds of surface (hide the boxes on
+  the image to click the picture under them). **Ctrl+Z / Ctrl+Y** undo and redo moves,
+  Reset, Switch and the card buttons (add, delete, ↑ ↓, duplicate), whenever you're not
+  typing in a text box.
+- **More than one place for a character**: **＋** on her card adds a half-size box (or a dot,
+  in Grid) beside her last one; drag it like any other, **×** on it removes it. Touching or
+  overlapping places are drawn as one shape, the name in the biggest piece and a dot in the
+  others. Every place reads the same card. For multi-angle sheets (full body on the left,
   close-up on the right, one character) and compositions where one character spans two areas.
   Want different words per view? Duplicate the card (⧉) and edit it instead. A character with
   several places gets no position words ("a girl on the left").
-- **Overlap share %** (on each card, with AI's Choice off): who wins where two places overlap.
+- **Overlap share %** (on each card): who wins where two places overlap.
   Every card starts at 50; the overlap is split in proportion, so 70 vs 30 gives 70/30 and
   80 vs 40 gives 2/3 vs 1/3. One character lying on another's lap: raise hers, lower the
   other's. A part of the image only one character has is the same at any share. The box or
@@ -132,7 +144,20 @@ When it's backwards:
 
 - **Set Queue and Dynamic Prompts wildcards** inside the cards, and prompt editing
   (`[a:b:10]`), switching on the same steps as the main prompt.
-- **LoRA tags** in a card apply to the whole image, like everywhere else in Forge.
+- **LoRA tags** in a card stay on their own character (**Settings → Stagehand → Character
+  LoRAs**):
+  - **Masked** (the default): the LoRA changes only her area. About 1.3-1.45x the time (measured with hires fix
+    and ADetailer: 45 s -> 60 s for two girls, 60 s -> 87 s for three).
+  - **Separate pass**: one extra model run per character with a LoRA, kept only over her area.
+    Slower: each LoRA'd character adds a full run (about 2.2x for two girls, 2.9x for three).
+  - **Whole image**: like everywhere else in Forge, every character gets every card's LoRA.
+
+  In a blind test (8 images, 2 and 3 girls) Masked and Separate pass tied, both ahead of Whole
+  image; Masked won more often, Separate pass was never last.
+
+  Either way her face in ADetailer gets only her own LoRA, and a LoRA's text-encoder part
+  (when Forge recognizes it) reads only her card's text. Images record the mode
+  ("Char LoRAs"). With several images in a batch, the first image's LoRAs are used for all.
 - **Tag Autocomplete** (sd-webui-tagcomplete) suggests tags in each card's Prompt and Undesired
   Content boxes too. Its txt2img, img2img and negative prompt settings apply to them as to the
   main boxes.
@@ -164,8 +189,8 @@ Character 3 (Ami) at B3 + D3: girl, black hair, glasses, ...
 Negative prompt: worst quality, ...
 ```
 
-- The name appears when the card has one; the position when AI's Choice was off (a box, or a
-  grid cell, several joined by ` + `); the overlap share when it isn't 50.
+- The name appears when the card has one; the position when someone was placed by hand (a
+  box, or a grid cell, several joined by ` + `); the overlap share when it isn't 50.
 - Pasting an image fills the cards back in, switches them on and sets the positions. So does
   pasting that prompt text into the prompt box. Send to txt2img / img2img carries the cards
   as they are.
@@ -193,21 +218,31 @@ Negative prompt: worst quality, ...
 - **Strength**: how much of the reference goes in. 0 ignores the card; negative pushes away
   from it.
 - **Fidelity**: how hard the reference is to override with the prompt.
+- **Whole image / Character N**: who the card is for. A card for a character goes only into
+  her part of the image (where her Character Prompts card places her), so each character can
+  have her own references. A card for a character who isn't in the image is skipped (console
+  line and a note under the image).
+- **Hires fix / ADetailer**: also use the card in that pass. Off (the default), it only shapes
+  the first pass and the hires fix and ADetailer refine without it -- in a blind test that
+  ranked best on every image. In ADetailer a character's card goes only to her own face
+  (matched as for her prompt). Batch Hires-Fix and Batch ADetailer follow the same ticks.
 
 Tips:
 
-- Use it for a solo character or the whole image's look. **Several cards blend into one**:
-  the same character from a few angles works well; two different characters become one.
+- **Whole-image cards blend into one**: the same character from a few angles works well; two
+  different characters become one. For two characters, give each her own cards.
 - Cards add up, so lower each card's Strength when using three or four.
 - A reference on a plain background transfers the character; on a busy one it also copies the
   background and pose. If that happens, lower Fidelity (~0.6).
 - A style reference works best at about 0.5; at 1.0 it copies the whole artwork.
+- It carries looks, not poses: a pose reference (a meme with two people pointing) didn't move
+  the characters into its pose.
 
 Each reference is kept as a copy in `outputs\stagehand references\`, and its path goes into
 the PNG info, so pasting the image (or a batch tab re-running it) brings the reference back.
 
-**also in ADetailer** (off by default) adds the reference to ADetailer's face pass for that
-generation, which keeps the face closer to it.
+A character card in ADetailer keeps her face closer to the reference (and is ~3 s/image
+faster than a face pass without the adapter).
 
 It needs the base Anima (28 blocks); other sizes are skipped with a console message.
 
@@ -233,7 +268,7 @@ Character 2 (Aoi) at 0.350 0.000 1.000 1.000, share 20%: girl, short blue hair, 
 - `Character N` numbers 1–6. `(Name)` is optional; it only labels the character.
 - `at …` places the character, as fractions of the image (`x0 y0 x1 y1`) or a grid cell
   (`C3`). Several places for one character: `at B3 + D3`. Leave `at` out on every line for
-  AI's Choice (columns, in number order).
+  the default columns (in number order); a line without it among placed ones gets its column.
 - `, share N%` is the overlap share (50 if left out).
 - A character's text may go on over several lines; the next `Character` line ends it.
 - Undesired Content: the same lines after the main negative prompt, in `negative_prompt`
@@ -246,7 +281,8 @@ Or send the cards as Character Prompts' args, as the UI does:
 
 ```jsonc
 "alwayson_scripts": {"Character Prompts": {"args": [
-    false,                                         // AI's Choice
+    true,                                          // (old AI's Choice) true: positions count when given;
+                                                   // false: placed boxes even for empty ones
     true, "Rin", "girl, red hair", "", "0 0 0.6 1",  // card 1: on, name, prompt, Undesired Content, position
     true, "", "girl, blue hair", "glasses", "0.4 0 1 1",
     true, "", "", "", "",  true, "", "", "", "",   // cards 3-6 (empty)
@@ -267,18 +303,28 @@ A prompt that already has `Character N:` lines uses those and ignores the cards.
     "", "Character", 1.0, 1.0,                     // cards 2-4: "" = no image
     "", "Character", 1.0, 1.0,
     "", "Character", 1.0, 1.0,
-    false, true                                    // also in ADetailer, on
+    false, true,                                   // (old: ADetailer for every card), on
+    "Character 1", true, true,                     // card 1: for, in Hires fix, in ADetailer
+    "Whole image", false, false,                   // cards 2-4
+    "Whole image", false, false,
+    "Whole image", false, false
 ]}}
 ```
 
 The image is base64 (a `data:` URL works too) or a file path on the machine Forge runs on.
-Type is `Character`, `Style` or `Character & Style`; strength −1 to 2; fidelity 0 to 1. The
-image's PNG info reports what was applied (`PR 1 strength: …`).
+Type is `Character`, `Style` or `Character & Style`; strength −1 to 2; fidelity 0 to 1. `for`
+is `Whole image` or `Character N` (N as in the character lines). The image's PNG info reports
+what was applied (`PR 1 strength: …`, `PR 1 for: Character 1`, `PR 1 hires: True`).
+
+An arg list without the last twelve values (written before they existed) still works: Forge
+fills them with the defaults (whole image, neither pass), and the old ADetailer flag, when
+true, still puts every card in ADetailer.
 
 ### Per request
 
-`override_settings` takes Stagehand's settings: `stagehand_cp_one_pass` (true/false) and
-`stagehand_cp_region_strength` (0–1). ADetailer's per-character faces work over the API too,
+`override_settings` takes Stagehand's settings: `stagehand_cp_one_pass` (true/false),
+`stagehand_cp_region_strength` (0–1) and `stagehand_cp_lora` (`"Whole image"`, `"Masked"` or
+`"Separate pass"`). ADetailer's per-character faces work over the API too,
 whenever its prompt is `[PROMPT]` or empty.
 
 ## Tests

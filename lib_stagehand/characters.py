@@ -14,6 +14,8 @@ import re
 import torch
 import torch.nn.functional as F
 
+from lib_stagehand import region_lora
+
 # ---------------------------------------------------------------------------- markers
 # Character boxes ride inside the main prompt from the start of processing until the
 # per-batch split, so Set Queue words and Dynamic Prompts wildcards reach them too. (XYZ's
@@ -309,8 +311,9 @@ class RegionSession:
     region's attention replaces the base's (1 = all the way).
     """
 
-    def __init__(self, boxes, images, step, patch=2, blur=1.5, whole=False, strength=1.0, shares=None):
+    def __init__(self, boxes, images, step, patch=2, blur=1.5, whole=False, strength=1.0, shares=None, numbers=()):
         self.boxes = list(boxes)
+        self.numbers = list(numbers)  # each box's character number: Precise Reference's targets
         self.shares = shares
         self.images = images
         self.step = step
@@ -360,11 +363,18 @@ class RegionSession:
             self._lengths = (key, last.clamp(min=1).tolist())
         return self._lengths[1]
 
-    def _char_kv(self, module, tokens, like):
-        key = (id(module), id(tokens), like.device, like.dtype)
-        if key not in self._kv:
-            self._kv[key] = cross_kv(module, tokens.to(device=like.device, dtype=like.dtype))
-        return self._kv[key]
+    def _char_kv(self, module, tokens, like, lora=None, number=None):
+        """Character `number`'s k/v; with per-character LoRAs (Masked) her own text gets hers."""
+        if lora is not None:
+            lora.context_owner = number
+        try:
+            key = (id(module), id(tokens), like.device, like.dtype, lora.key() if lora is not None else None)
+            if key not in self._kv:
+                self._kv[key] = cross_kv(module, tokens.to(device=like.device, dtype=like.dtype))
+            return self._kv[key]
+        finally:
+            if lora is not None:
+                lora.context_owner = None
 
     @torch.compiler.disable
     def attend(self, module, q, k, v, context, options):
@@ -386,6 +396,7 @@ class RegionSession:
         lengths = self._real_lengths(context, tuple(options.get("cond_indices") or ()) + (-1,) + tuple(options.get("uncond_indices") or ()))
         heads, dim = k.shape[-2], k.shape[-1]
         k_rows, v_rows = k.reshape(batch, -1, heads, dim), v.reshape(batch, -1, heads, dim)
+        lora = options.get(region_lora.KEY)
         out = None
         for r in range(1, len(weights)):
             rows, keys, values = [], [], []
@@ -394,7 +405,7 @@ class RegionSession:
                 tokens = pick(positive if b in cond else negative, step)
                 if tokens is None:
                     continue
-                k_char, v_char = self._char_kv(module, tokens, context)
+                k_char, v_char = self._char_kv(module, tokens, context, lora, self.numbers[r - 1] if self.numbers else None)
                 rows.append(b)
                 if self.whole:
                     keys.append(k_char.to(k))

@@ -9,9 +9,13 @@ projection per block per step and advances ControlLLLite's per-call counter on q
 
 Sessions travel in transformer_options; a cross-attention without one runs the original.
 This module is imported once (sys.modules), so a Reload UI can't stack the wrappers.
+The Block wrapper also makes a pass's per-character LoRAs (region_lora) current while the
+block runs: its Linears read them from there.
 """
 
 from backend.nn import anima as anima_nn
+
+from lib_stagehand import region_lora
 
 REGIONS_KEY = "nai_character_regions"
 IP_KEY = "precise_reference_ip"
@@ -36,7 +40,7 @@ def install() -> None:
             else:
                 out = self.compute_attention(q, k, v, transformer_options=options)
             if ip is not None:
-                ip.capture(index, q, options)
+                ip.capture(index, q, options, regions)
             return out
 
         forward._nai_hooked = True
@@ -46,7 +50,11 @@ def install() -> None:
     if not getattr(original_block, "_nai_hooked", False):
 
         def block_forward(self, x, emb, *args, **kwargs):
-            out = original_block(self, x, emb, *args, **kwargs)
+            region_lora.current = (kwargs.get("transformer_options") or {}).get(region_lora.KEY)
+            try:
+                out = original_block(self, x, emb, *args, **kwargs)
+            finally:
+                region_lora.current = None
             index = getattr(self, "_pr_ip_index", None)
             if index is not None:
                 session = (kwargs.get("transformer_options") or {}).get(IP_KEY)
@@ -64,4 +72,5 @@ def tag_blocks(diffusion_model) -> list:
     for i, block in enumerate(blocks):
         block._pr_ip_index = i
         block.cross_attn._pr_ip_index = i
+        region_lora.hook_linears(block)
     return blocks
