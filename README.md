@@ -235,7 +235,8 @@ Drop an image in, then:
 
 - **Strength**: how much of the reference goes in: about 1 for a character, about 0.5 for an
   art style. 0 ignores the card; negative pushes away from it.
-- **Fidelity**: how hard the reference is to override with the prompt.
+- **Fidelity**: how hard the reference is to override with the prompt. 0.6 by default: in a
+  blind test it ranked best (1.0, the old default, ranked last). Raise it for a closer copy.
 - **Hires fix / ADetailer**: also use the card in that pass. Off (the default), it only shapes
   the first pass and the hires fix and ADetailer refine without it -- in a blind test that
   ranked best on every image. In ADetailer a character's card goes only to her own face
@@ -247,7 +248,7 @@ Tips:
   different characters become one. For two characters, give each her own cards.
 - Cards add up, so lower each card's Strength when using three or four.
 - A reference on a plain background transfers the character; on a busy one it also copies the
-  background and pose. If that happens, lower Fidelity (~0.6).
+  background and pose. If that happens, lower Fidelity (~0.4).
 - A style reference works best at about 0.5; at 1.0 it copies the whole artwork.
 - It carries looks, not poses: a pose reference (a meme with two people pointing) didn't move
   the characters into its pose.

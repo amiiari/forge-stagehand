@@ -48,8 +48,8 @@ into her part of the image (and her face in ADetailer), so two characters can ea
 here, for the whole image, blend: two different characters become one (NovelAI's do the same).</li>
 <li><b>Strength:</b> how much of the reference goes in: about 1 for a character, about 0.5 for an art style (at 1 it
 copies the whole artwork). 0 turns the card off; below 0 pushes away from it.</li>
-<li><b>Fidelity:</b> how hard the reference is to override with your prompt. Lower it if the prompt
-(pose, outfit) isn't being followed.</li>
+<li><b>Fidelity:</b> how hard the reference is to override with your prompt. 0.6 by default (it beat 1.0 in a blind
+test); lower it if the prompt (pose, outfit) isn't being followed, raise it for a closer copy.</li>
 <li><b>Hires fix / ADetailer:</b> also use this card in that pass. Off: the card only shapes the first pass, which
 looked best in testing. In ADetailer, a character's card goes only to her own face. Both off by default.</li>
 </ol>
@@ -150,7 +150,7 @@ def _fill_defaults(params):
         old = f"PR {n} image" in params and f"PR {n} hires" not in params
         params.setdefault(f"PR {n} type", "Character")
         params.setdefault(f"PR {n} strength", 1.0)
-        params.setdefault(f"PR {n} fidelity", 1.0)
+        params.setdefault(f"PR {n} fidelity", 1.0 if f"PR {n} image" in params else EMPTY[3])  # a fresh card: today's default
         params.setdefault(f"PR {n} for", TARGETS[0])
         params.setdefault(f"PR {n} hires", "True" if old else "False")
         params.setdefault(f"PR {n} ADetailer", legacy if old else "False")
@@ -241,7 +241,7 @@ def _add_card(shown):
     return [shown] + [gr.update(visible=v) for v in shown] + targets
 
 
-EMPTY = (None, "Character", 1.0, 1.0, TARGETS[0], False, False)  # a fresh card's fields
+EMPTY = (None, "Character", 1.0, 0.6, TARGETS[0], False, False)  # a fresh card's fields
 
 
 def _act(text, shown, *values):
@@ -377,7 +377,7 @@ class PreciseReference(scripts.Script):
                                 gr.HTML("", elem_classes=["nai-spacer"])
                                 remove = gr.Button("🗑", elem_classes=["nai-icon", "nai-remove-ref"], min_width=36, scale=0)
                             strength = gr.Slider(label="Strength", minimum=-1.0, maximum=2.0, step=0.01, value=1.0)
-                            fidelity = gr.Slider(label="Fidelity", minimum=0.0, maximum=1.0, step=0.01, value=1.0)
+                            fidelity = gr.Slider(label="Fidelity", minimum=0.0, maximum=1.0, step=0.01, value=0.6)
                             with gr.Row(elem_classes=["nai-ref-passes"]):
                                 hires = gr.Checkbox(value=False, label="Hires fix", elem_id=f"nai_{tab}_pr{i + 1}_hires", elem_classes=["nai-auto", "nai-ref-hires"], scale=0, min_width=110)
                                 adetailer = gr.Checkbox(value=False, label="ADetailer", elem_id=f"nai_{tab}_pr{i + 1}_adetailer", elem_classes=["nai-auto", "nai-ref-adetailer"], scale=0, min_width=110)

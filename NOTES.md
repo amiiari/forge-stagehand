@@ -367,6 +367,24 @@ fox-girl reference, a cafe prompt that contradicts it, two seeds, fidelity 0-1):
 Picked by eye: the current one, on both seeds. Unsolved: an even slider (where the step
 falls depends on the reference and the strength).
 
+### Fidelity default: blind test (2026-10-08)
+
+Fidelity 1.0 / 0.8 / 0.6 / 0.4, whole-image references at Strength 1 in total, five subjects
+(Hsin, Shadow, Label's Occultist skin, Duolingo's Lily, Wumpus) x two seeds, the full pipeline
+(style LoRA, hires, ADetailer). Ranked blind, best first. Shadow and Wumpus were "all equally
+bad" (the reference didn't carry them at any value), so 6 images count:
+
+| Fidelity | ranks | mean |
+|---|---|---|
+| 0.6 | 1 2 1 3 2 2 | **1.83** |
+| 0.4 | 2 1 4 4 1 1 | 2.17 |
+| 0.8 | 4 4 2 1 3 3 | 2.83 |
+| 1.0 (old default) | 3 3 3 2 4 4 | 3.17 |
+
+0.6 is the new default: the best mean, never last. 0.4 won three images but came last on both
+Labels. Label was "all pretty bad and inaccurate" at every value. Older images still paste back
+at the 1.0 they were made with.
+
 ### Cost
 
 About **1 s per image** (5.5 s vs 4.4 s at 768×1024, 30 steps, RTX 5090):
