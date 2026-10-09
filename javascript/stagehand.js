@@ -414,21 +414,61 @@
         const H = surface.clientHeight;
         const MIN = 0.05;
         live = {id, n, j, value: start.slice()};
+        // a box's edges snap to the image's borders and middle and to every other place's edges
+        // (Alt held: no snapping), when within SNAP screen px
+        const SNAP = 6;
+        const xs = [0, 0.5, 1];
+        const ys = [0, 0.5, 1];
+        if (mode !== "dot") {
+            const chars = characters(id);
+            chars.forEach((ch, k) => ownPlaces(ch.input, false, k, chars.length).forEach((v, i) => {
+                const other = parse(v);
+                if (other && !(ch.n === n && i === j)) {
+                    xs.push(other[0], other[2]);
+                    ys.push(other[1], other[3]);
+                }
+            }));
+        }
+        // how far to shift so the nearest of `edges` meets a target (0: none close enough)
+        const pull = (edges, targets, size) => {
+            let shift = 0;
+            let gap = SNAP / size;
+            for (const at of edges) for (const t of targets) {
+                if (Math.abs(t - at) < gap) {
+                    gap = Math.abs(t - at);
+                    shift = t - at;
+                }
+            }
+            return shift;
+        };
         const move = (e) => {
             const dx = (e.clientX - x0) / W;
             const dy = (e.clientY - y0) / H;
+            const snap = !e.altKey;
             let [a, b, c, d] = start;
             if (mode === "dot") {
                 live.value = [Math.min(Math.max(a + dx, 0), 0.999), Math.min(Math.max(b + dy, 0), 0.999)];
             } else if (mode === "move") {
-                const x = Math.min(Math.max(a + dx, 0), 1 - (c - a));
-                const y = Math.min(Math.max(b + dy, 0), 1 - (d - b));
-                live.value = [x, y, x + (c - a), y + (d - b)];
+                const w = c - a;
+                const h = d - b;
+                let x = Math.min(Math.max(a + dx, 0), 1 - w);
+                let y = Math.min(Math.max(b + dy, 0), 1 - h);
+                if (snap) {
+                    x = Math.min(Math.max(x + pull([x, x + w], xs, W), 0), 1 - w);
+                    y = Math.min(Math.max(y + pull([y, y + h], ys, H), 0), 1 - h);
+                }
+                live.value = [x, y, x + w, y + h];
             } else {
                 if (mode.includes("w")) a = Math.min(Math.max(a + dx, 0), c - MIN);
                 if (mode.includes("e")) c = Math.max(Math.min(c + dx, 1), a + MIN);
                 if (mode.includes("n")) b = Math.min(Math.max(b + dy, 0), d - MIN);
                 if (mode.includes("s")) d = Math.max(Math.min(d + dy, 1), b + MIN);
+                if (snap) {
+                    if (mode.includes("w")) a = Math.min(a + pull([a], xs, W), c - MIN);
+                    if (mode.includes("e")) c = Math.max(c + pull([c], xs, W), a + MIN);
+                    if (mode.includes("n")) b = Math.min(b + pull([b], ys, H), d - MIN);
+                    if (mode.includes("s")) d = Math.max(d + pull([d], ys, H), b + MIN);
+                }
                 live.value = [a, b, c, d];
             }
             redraw(id);

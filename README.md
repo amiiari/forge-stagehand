@@ -103,8 +103,9 @@ shared ones can't be changed or deleted there; saving one (or renaming it) makes
   only) or on the output image (everyone); the two stay in sync. A character you never
   dragged stays in her default column. Two ways (the Boxes / Grid switch; switching keeps each
   character where it was):
-  - **Boxes**: drag a box from anywhere on it, resize it by any edge or corner. Boxes may
-    overlap; the overlap is shared, by each card's **Overlap %**.
+  - **Boxes**: drag a box from anywhere on it, resize it by any edge or corner. Its edges snap
+    to the other boxes' edges and the image's borders and middle (hold Alt to place it
+    freely). Boxes may overlap; the overlap is shared, by each card's **Overlap %**.
   - **Grid**: NovelAI's 5×5 grid. Each character is a dot that snaps to a cell. Every part of
     the image belongs to the nearest dot, so stacked or diagonal dots give layouts columns
     can't (bunk beds, someone in the foreground).
