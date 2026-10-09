@@ -37,7 +37,7 @@ i'd rather not type LMAO
 **Each character gets her own prompt.** Left: both girls described in one prompt ("the girl on
 the left is..."). Right: a Character Prompts card each, in her own spot.
 
-![Two characters in one prompt versus a card each](examples/1-characters.jpg)
+![Two characters in one prompt versus a card each, and their boxes](examples/1-characters.jpg)
 
 **Put them where you want**: AI's Choice, boxes you drag, or NovelAI's 5×5 grid, for up to
 10 characters (a "character" can be a thing: a box, a bird, a screen).
@@ -47,7 +47,7 @@ the left is..."). Right: a Character Prompts card each, in her own spot.
 **Character LoRAs stay on their character** (Masked, the default): each LoRA only works inside
 her own area.
 
-![Two and three character LoRAs in one image](examples/3-character-loras.jpg)
+![Three character LoRAs in one image, and each one's area](examples/3-character-loras.jpg)
 
 **Precise Reference** copies a character's look from a picture, no LoRA needed.
 
