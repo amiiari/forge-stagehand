@@ -1054,7 +1054,7 @@
             ".nai-remove-ref": "Remove this reference",
             ".nai-ref-hires": "Keep this reference while Hires fix redraws the image. Off (default): only the first pass uses it, which looked best in testing",
             ".nai-ref-adetailer": "Keep this reference while ADetailer repaints faces, e.g. when a face drifts from the reference. A character's reference goes only to her own face",
-            [`#nai_${id}_chars_manual`]: "Boxes: drag and resize a box per character. Grid: NovelAI's 5x5 grid, a dot where each character's head goes",
+            [`#nai_${id}_chars_manual`]: "Boxes: drag and resize a box per character. Grid: a 5x5 grid, a dot where each character's head goes",
             ".nai-reset": "Everyone back in the default columns, left to right in card order (Ctrl+Z undoes it)",
             ".nai-switch": "Swap two characters' places",
             ".nai-toggle[data-what=canvases]": "Show or hide the small map beside each character",

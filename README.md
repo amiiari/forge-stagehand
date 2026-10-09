@@ -39,8 +39,8 @@ the left is..."). Right: a Character Prompts card each, in her own spot.
 
 ![Two characters in one prompt versus a card each, and their boxes](examples/1-characters.jpg)
 
-**Put them where you want**: AI's Choice, boxes you drag, or NovelAI's 5×5 grid, for up to
-10 characters (a "character" can be a thing: a box, a bird, a screen).
+**Put them where you want**: spread out evenly by default, or boxes you drag, or a 5×5 grid,
+for up to 10 characters (a "character" can be a thing: a box, a bird, a screen).
 
 ![Boxes and grid positions with the results](examples/2-positions.jpg)
 
@@ -99,8 +99,8 @@ else. Precise Reference needs two models in `models\precise_reference\` (about 2
   reference images, with their count; see Precise Reference) tabs;
 - a small map of her place in the image, with **+** for another place.
 
-Write the scene, the style and the count tags (`2girls`, `1boy, 1girl`) in the main prompt,
-like on NovelAI; switching a card off doesn't change the count, so keep it right yourself.
+Write the scene, the style and the count tags (`2girls`, `1boy, 1girl`) in the main prompt.
+Switching a card off doesn't change the count, so keep it right yourself.
 Each card describes one character, starting with `girl` or `boy`: that word is also what
 the position words use ("a girl on the left"; without it, "a character on the left"). A card
 can span several lines (appearance, outfit, proportions...); the line breaks are kept
@@ -135,7 +135,7 @@ shared ones can't be changed or deleted there; saving one (or renaming it) makes
   - **Boxes**: drag a box from anywhere on it, resize it by any edge or corner. Its edges snap
     to the other boxes' edges and the image's borders and middle (hold Alt to place it
     freely). Boxes may overlap; the overlap is shared, by each card's **Overlap %**.
-  - **Grid**: NovelAI's 5×5 grid. Each character is a dot that snaps to a cell. Every part of
+  - **Grid**: a 5×5 grid. Each character is a dot that snaps to a cell. Every part of
     the image belongs to the nearest dot, so stacked or diagonal dots give layouts columns
     can't (bunk beds, someone in the foreground).
     - **Put each dot where that character's head will be.** Looks are decided around the head.
@@ -167,7 +167,7 @@ shared ones can't be changed or deleted there; saving one (or renaming it) makes
 
 ### Who does what
 
-NovelAI's interaction tags work: `source#hug` (the one doing it), `target#hug` (the one it's
+Interaction tags work: `source#hug` (the one doing it), `target#hug` (the one it's
 done to), `mutual#hug` (both). They become a sentence like "the girl on the left is doing hug
 to the girl on the right".
 
@@ -336,7 +336,7 @@ Or send the cards as Character Prompts' args, as the UI does:
 
 ```jsonc
 "alwayson_scripts": {"Character Prompts": {"args": [
-    true,                                          // (old AI's Choice) true: positions count when given;
+    true,                                          // true: positions count when given;
                                                    // false: placed boxes even for empty ones
     true, "Rin", "girl, red hair", "", "0 0 0.6 1",  // card 1: on, name, prompt, Undesired Content, position
     true, "", "girl, blue hair", "glasses", "0.4 0 1 1",

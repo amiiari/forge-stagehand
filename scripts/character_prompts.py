@@ -71,7 +71,7 @@ HELP = """<details class="nai-help"><summary>How to use</summary><div>
 <ol>
 <li><b>Main prompt:</b> the scene, the style, and how many people (<code>2girls</code>, <code>1boy, 1girl</code>).
 Don't describe the characters there. The count is yours to keep right: switching a card off doesn't change it.</li>
-<li><b>+ Add character</b> adds a card. Start its box with <code>girl</code> or <code>boy</code> (NovelAI's habit: it
+<li><b>+ Add character</b> adds a card. Start its box with <code>girl</code> or <code>boy</code> (it
 also makes the position words say "a girl on the left" instead of "a character on the left"), then describe only
 that character: hair, eyes, outfit, expression. Whatever that character must not have goes under <b>Undesired
 Content</b> (a dot on the tab when it has something). A card's <b>On</b> / <b>Off</b> pill switches that character off
