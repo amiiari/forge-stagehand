@@ -1,22 +1,21 @@
 # Stagehand
 
-ahahah hi! i hope you find this repo useful, used opus 5.5 to make this extension after ironing out most of the details for how the logic would work!
-anyways yeah, 2+ character generations on anima were possible but ugh still annoying, however 10x easier compared to the old CLIP infrastructure that illustrious and pony had.
+ahahah hi! i hope you find this repo useful, used opus 5.5 to make this extension after ironing out most of the details for how the logic would work myself!
+anyways yeah, 2+ character generations on anima are possible but ugh still annoying, however 10x easier compared to the old CLIP infrastructure that illustrious and pony had hahahha.
 
 so yeah, this extension is supposed to generally make things easier on forge neo for putting characters 
-in the right spot! especially when it comes to doing 2+ character images, i've tested with 4 and it turned 
+in the right spot! and... having multiple characters... especially when it comes to doing 2+ character images, i've tested with 4 and it turned 
 out pretty good! you can drag a character's dot thing and it'll snap to a 5x5 grid, however i doubt it would 
-listen thaat much, but it does work for the most part! but yeah the normal feature with the ai's choice evenly 
-distributes a regional prompting area depending on how many characters are actually in the image. if you'd 
-rather be more specific (even more than the dragging thing) you can set it to boxes, where you can manually 
-resize each box yourself etc. etc. yeah... it uses the same source# and target# notation that novel uses too (i hope)
+listen thaat much, but it does work for the most part! but yeah by default it evenly distributes a regional diffusion
+area depending on how many characters are actually in the image. if you'd rather be more specific (even more than the dot thing)
+you can set it to boxes, where you can manually resize each box yourself etc. etc. yeah... it uses the same source# and target# notation that novel uses too (i hope)
 
-i havent tried much NSFW stuff so yeah that might be a limitation. 
+i havent tried much NSFW stuff so yeah that might be a limitation? i dont think it is though! 
 
 um theres also the precise reference or in forge terms, controlnet's ipadapter, so you throw in an image 
-(i suggest decently large though LMFAO), and it will generate a small lora based on the input images and then 
+(i suggest decently large though LMFAO, ~1MP), and it will generate a small lora based on the input images and then 
 apply it to the images, i honestly cant imagine using this feature much BUT on the off chance i do, i'd like 
-to have it ahahaha, it definitely works! but ehhh if i had a commission of a character that anima didnt know 
+to have it ahahaha, it definitely works! but ehhh if i had a commission of a character that anima didnt know / no loras 
 i wouldnt really rely on it. 
 
 in the settings i have opened up some? of the internals? with some parameters that you can edit since results 
