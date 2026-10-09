@@ -53,12 +53,13 @@ her own area.
 
 ![Reference images, the result without and with Precise Reference](examples/4-precise-reference.jpg)
 
-**Try one yourself:** [kira-and-annie-boxes.png](examples/kira-and-annie-boxes.png),
-[umbrella-grid.png](examples/umbrella-grid.png) and
-[tv-room-9-characters.png](examples/tv-room-9-characters.png) keep their PNG info. Download
-one, drop it into PNG Info, and Send to txt2img: the characters come back as cards, with
-their places. They use the author's style LoRA (`amiiari-anima-v5.3`), so without it they'll
-look a little different.
+**Try one yourself:** [kira-and-annie-layout.png](examples/kira-and-annie-layout.png),
+[umbrella-grid-layout.png](examples/umbrella-grid-layout.png) and
+[tv-room-9-characters-layout.png](examples/tv-room-9-characters-layout.png) are the
+generations with their boxes (or grid dots) drawn on as Stagehand shows them, and they keep
+their PNG info. Download one, drop it into PNG Info, and Send to txt2img: the characters come
+back as cards, with their places. They use the author's style LoRA (`amiiari-anima-v5.3`), so
+without it they'll look a little different.
 
 ## Settings
 
