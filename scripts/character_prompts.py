@@ -82,7 +82,7 @@ type in a card's name box and pick it from the list: the card's text is replaced
 references stay. <b>Presets</b>, under the cards, lists them all to add, edit, rename or delete. &#10697; duplicates a card; &#8943; has its ADetailer face.</li>
 <li><b>Positions:</b> by default the characters stand left to right in card order (&uarr; &darr; to reorder).
 Drag one to place it yourself -- on the small canvas beside its card, or over the output image (<b>on image</b> turns those on; a click there still opens the image). <b>Boxes</b>: drag
-a box anywhere on it, resize it by any edge or corner; its edges snap to other boxes and the image's borders and middle (hold Alt not to). <b>Grid</b>: NovelAI's 5&times;5 grid; drag a character's
+a box anywhere on it, resize it by any edge or corner; its edges snap to other boxes and the image's borders and middle (hold Alt not to). <b>Grid</b>: a 5&times;5 grid; drag a character's
 dot to a cell, which marks its center, and each character gets the part of the image nearest its dot. Good for
 layouts columns can't do: one above the other (bunk beds), diagonal. Put a character's cell where its
 <i>head</i> will be. Both scale with the image. <b>Reset boxes</b> puts everyone back in the default columns;
