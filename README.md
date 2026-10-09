@@ -32,6 +32,34 @@ some things you should know:
 okay! anyways, i will let opus 5.5 take it from here with a more in depth explanation of the details and stuff 
 i'd rather not type LMAO 
 
+## Examples
+
+**Each character gets her own prompt.** Left: both girls described in one prompt ("the girl on
+the left is..."). Right: a Character Prompts card each, in her own spot.
+
+![Two characters in one prompt versus a card each](examples/1-characters.jpg)
+
+**Put them where you want**: AI's Choice, boxes you drag, or NovelAI's 5×5 grid, for up to
+10 characters (a "character" can be a thing: a box, a bird, a screen).
+
+![Boxes and grid positions with the results](examples/2-positions.jpg)
+
+**Character LoRAs stay on their character** (Masked, the default): each LoRA only works inside
+her own area.
+
+![Two and three character LoRAs in one image](examples/3-character-loras.jpg)
+
+**Precise Reference** copies a character's look from a picture, no LoRA needed.
+
+![Reference images, the result without and with Precise Reference](examples/4-precise-reference.jpg)
+
+**Try one yourself:** [kira-and-annie-boxes.png](examples/kira-and-annie-boxes.png),
+[umbrella-grid.png](examples/umbrella-grid.png) and
+[tv-room-9-characters.png](examples/tv-room-9-characters.png) keep their PNG info. Download
+one, drop it into PNG Info, and Send to txt2img: the characters come back as cards, with
+their places. They use the author's style LoRA (`amiiari-anima-v5.3`), so without it they'll
+look a little different.
+
 ## Settings
 
 **Settings → Stagehand → Precise Reference**: untick it (then Reload UI) to remove Precise
