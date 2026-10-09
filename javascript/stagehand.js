@@ -15,7 +15,7 @@
 // - Precise Reference's cards for a character live in her card's Reference tab.
 (() => {
     const TABS = [["txt2img", "t2i"], ["img2img", "i2i"]];
-    const MAX = 6;
+    const MAX = 10;
     const GRID = 5;
     const SHARE = 50; // a card's default overlap share (characters.SHARE)
     const FEATURES = [["chars", "Character Prompts"], ["pr", "Precise Reference"]];

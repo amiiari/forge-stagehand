@@ -490,11 +490,12 @@ def test_prompt_lines():
     cp = _script_module()
     script = cp.CharacterPrompts()
 
+    # the 6-card layout API callers were written for (cards 7-10 come after it)
     def args(auto, cards, on=True, manual="Boxes", shares=()):
         flat = [auto]
-        for i in range(cp.MAX_CHARS):
+        for i in range(cp.OLD_CHARS):
             flat += list(cards[i]) if i < len(cards) else [True, "", "", "", ""]
-        return flat + [cp.FACES[0]] * cp.MAX_CHARS + [on, manual] + list(shares)
+        return flat + [cp.FACES[0]] * cp.OLD_CHARS + [on, manual] + list(shares)
 
     ren = (True, "Ren", "girl, dark blue hair, source#hug", "blonde hair", "0.000 0.000 0.500 1.000")
     kira = (True, "", "girl, black hair\nwhite tips", "", "0.500 0.000 1.000 1.000")
@@ -510,6 +511,10 @@ def test_prompt_lines():
     # someone dragged: placed, the others at their default columns, even with the arg on
     pos, _ = script.prompt_lines("2girls", "", *args(True, [ren, (*kira[:4], "")]))
     assert [c["box"] for c in read(pos)[1].values()] == [ren[4], "0.500 0.000 1.000 1.000"], pos
+    # a 10th card, after the old layout, with its own face pick and share
+    tenth = [cp.CARD_DEFAULTS] * 9 + [(True, "Kira", "girl, black hair", "", "", cp.FACES[2], 70)]
+    assert cp._characters(cp._pack(True, tenth, True, "Boxes")) == [(10, "Kira", "girl, black hair", "", None, 1, 70)]
+    assert cp._face_picks(cp._pack(True, tenth, True, "Boxes")) == {10: 1}
     # undo / redo hands the whole state back as JSON: cards shown, their fields, Boxes / Grid
     import json as _json
 

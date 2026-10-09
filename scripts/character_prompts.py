@@ -55,12 +55,13 @@ from lib_stagehand.characters import (
 
 anima_hooks.install()
 
-MAX_CHARS = 6  # NovelAI V4.5's limit; regional prompting gets unreliable well before V5's 22
+MAX_CHARS = 10  # NovelAI V4.5 has 6; regional prompting gets less reliable as each gets less room
+OLD_CHARS = 6  # the cards the args were first laid out for (see LAYOUT)
 CARD_FIELDS = 7  # enabled, name, prompt, uc, box, face, share -- a card's components in the UI
 ARG_FIELDS = 5  # the args carry each card's first five, then every card's face, then every share
 PROMPT = 2  # index of the prompt within a card's fields
 FACE = 5  # ...and of its ADetailer face pick
-NTH = ("1st", "2nd", "3rd", "4th", "5th", "6th")
+NTH = ("1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th", "9th", "10th")
 FACES = ["Face: auto"] + [f"Face: {nth} from left" for nth in NTH]
 # How a character dragged into place is placed: boxes, or NovelAI V4.5's 5x5 grid (a cell per
 # character = its center; nearest cell wins). One never dragged stands in its default column.
@@ -100,7 +101,7 @@ repainted with its own character's prompt. Pick "Nth from left" only if a face g
 </ol>
 <p>LoRAs typed in a box apply only to that character (Settings &gt; Stagehand &gt; Character LoRAs can make them
 apply to the whole image). Wildcards and Set Queue words work inside boxes.
-Up to 6 characters; 2&ndash;3 work best. Anima only. Saved images list the characters in their prompt, under the
+Up to 10 characters; 2&ndash;3 work best. Anima only. Saved images list the characters in their prompt, under the
 main prompt; pasting one (or a batch ADetailer / hires-fix run) brings them back.</p>
 </div></details>"""
 # Extra-network tags (<lora:...>) apply to the whole model, so a box's tags move to the base,
@@ -142,38 +143,57 @@ def _of_kind(place, size):
     return None if not own else own[0] if len(own) == 1 else tuple(own)
 
 
+# The script args. Fields were added at the end over time, so API callers written for an older
+# layout keep working: [AI's Choice] + 6 x [on, name, prompt, uc, position] + 6 faces +
+# [on/off, placement] + 6 shares, then cards 7-10 whole (a card's CARD_FIELDS each).
+# LAYOUT[i]: where card i's CARD_FIELDS sit; ON_AT: on/off, then placement.
+ON_AT = 1 + OLD_CHARS * ARG_FIELDS + OLD_CHARS
+LAYOUT = ([[1 + i * ARG_FIELDS + k for k in range(ARG_FIELDS)] + [ON_AT - OLD_CHARS + i, ON_AT + 2 + i] for i in range(OLD_CHARS)]
+          + [[ON_AT + 2 + OLD_CHARS + (i - OLD_CHARS) * CARD_FIELDS + k for k in range(CARD_FIELDS)] for i in range(OLD_CHARS, MAX_CHARS)])
+ARGS = LAYOUT[-1][-1] + 1
+CARD_DEFAULTS = (False, "", "", "", "", FACES[0], SHARE)  # a card a caller didn't send
+
+
+def _pack(auto, cards, on, manual):
+    """The script args from each card's CARD_FIELDS (values, or the UI's components)."""
+    out = [None] * ARGS
+    out[0], out[ON_AT], out[ON_AT + 1] = auto, on, manual
+    for card, at in zip(cards, LAYOUT):
+        for value, j in zip(card, at):
+            out[j] = value
+    return out
+
+
+def _cards(args):
+    """Every card's CARD_FIELDS from the script args; what a caller didn't send, the defaults."""
+    return [tuple(args[j] if j < len(args) else CARD_DEFAULTS[k] for k, j in enumerate(at)) for at in LAYOUT]
+
+
+def _share(value):
+    """A card's overlap share in percent, 0-100 (SHARE when it isn't a number)."""
+    try:
+        return min(max(int(round(float(value))), 0), 100)
+    except (TypeError, ValueError):
+        return SHARE
+
+
 def _characters(args):
     """[(number, name, prompt, uc, box, face, share)] for every enabled card with something to
     say -- a box that is only a comment would otherwise still take a column. face
     is the hand-picked ADetailer detection (0 = 1st from the left), or None; share the card's
     claim on overlaps, in percent."""
     out = []
-    faces = list(args[1 + MAX_CHARS * ARG_FIELDS :]) + [FACES[0]] * MAX_CHARS
-    shares = _shares(args)
-    for i in range(MAX_CHARS):
-        enabled, name, prompt, uc, box = args[1 + i * ARG_FIELDS : 1 + (i + 1) * ARG_FIELDS]
+    for i, (enabled, name, prompt, uc, box, face, share) in enumerate(_cards(args)):
         if enabled and strip_comments(prompt or "").strip():
-            face = FACES.index(faces[i]) - 1 if faces[i] in FACES[1:] else None
-            out.append((i + 1, (name or "").strip(), prompt, uc or "", _parse_place(box), face, shares[i]))
-    return out
-
-
-def _shares(args):
-    """Every card's overlap share, after (on, manual) -- SHARE for callers that send none."""
-    rest = list(args[1 + MAX_CHARS * ARG_FIELDS + MAX_CHARS + 2 :])[:MAX_CHARS]
-    out = []
-    for v in rest + [SHARE] * (MAX_CHARS - len(rest)):
-        try:
-            out.append(min(max(int(round(float(v))), 0), 100))
-        except (TypeError, ValueError):
-            out.append(SHARE)
+            face = FACES.index(face) - 1 if face in FACES[1:] else None
+            out.append((i + 1, (name or "").strip(), prompt, uc or "", _parse_place(box), face, _share(share)))
     return out
 
 
 def _tail(args):
-    """(on, manual): the args after the Face picks -- the feature's on/off pill (on unless the
-    caller says otherwise) and the hand placement style."""
-    rest = list(args[1 + MAX_CHARS * ARG_FIELDS + MAX_CHARS :])
+    """(on, manual): the feature's on/off pill (on unless the caller says otherwise) and the
+    hand placement style."""
+    rest = list(args[ON_AT:])
     on = rest[0] if rest and rest[0] is not None else True
     manual = rest[1] if len(rest) > 1 and rest[1] in MANUAL else MANUAL[0]
     return bool(on), manual
@@ -212,8 +232,7 @@ def _in_crop(p, places):
 
 def _face_picks(args):
     """{card number: picked detection (0 = 1st from left)} for every card not on auto."""
-    faces = list(args[1 + MAX_CHARS * ARG_FIELDS :])
-    return {i + 1: FACES.index(f) - 1 for i, f in enumerate(faces[:MAX_CHARS]) if f in FACES[1:]}
+    return {i + 1: FACES.index(card[FACE]) - 1 for i, card in enumerate(_cards(args)) if card[FACE] in FACES[1:]}
 
 
 def _lift_networks(base: str, parts: dict) -> tuple[str, dict]:
@@ -1001,11 +1020,8 @@ class CharacterPrompts(scripts.Script):
         infotext.append((on, "Char feature"))
         self.infotext_fields = infotext
         self.paste_field_names = [key for _, key in infotext if isinstance(key, str)]
-        # Added fields go last, so API callers written for the older layouts keep working:
-        # [AI's Choice] + 6 x [on, name, prompt, uc, position] + 6 faces + [on/off, placement] + 6 shares
-        per_card = [fields[i * CARD_FIELDS : (i + 1) * CARD_FIELDS] for i in range(MAX_CHARS)]
-        return ([auto] + [c for card in per_card for c in card[:ARG_FIELDS]] + [card[FACE] for card in per_card] + [on, manual]
-                + [card[FACE + 1] for card in per_card])
+        # in LAYOUT's order: API callers written for the older layouts keep working
+        return _pack(auto, [fields[i * CARD_FIELDS : (i + 1) * CARD_FIELDS] for i in range(MAX_CHARS)], on, manual)
 
     # ------------------------------------------------------------------ processing
     def args_from_infotext(self, params):
@@ -1014,7 +1030,7 @@ class CharacterPrompts(scripts.Script):
         faces = [params.get(f"Char {n} ADetailer face", FACES[0]) for n in range(1, MAX_CHARS + 1)]
         if all(f == FACES[0] for f in faces):
             return None
-        return [True] + [x for _ in range(MAX_CHARS) for x in (True, "", "", "", "")] + faces + [True, MANUAL[0]]
+        return _pack(True, [(True, "", "", "", "", face, SHARE) for face in faces], True, MANUAL[0])
 
     def prompt_lines(self, prompt, negative, *args):
         """(prompt, negative) with this job's cards written in as the PNG info's character

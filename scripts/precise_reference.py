@@ -64,7 +64,7 @@ MAX_REFS = 4
 CARD_FIELDS = 4  # image, type, strength, fidelity
 # per card, added after [cards..., ADetailer (the old panel-wide flag), on]: for, in Hires, in ADetailer
 EXTRA_FIELDS = 3
-TARGETS = ["Whole image"] + [f"Character {n}" for n in range(1, 7)]  # Character Prompts' 6 cards
+TARGETS = ["Whole image"] + [f"Character {n}" for n in range(1, 11)]  # Character Prompts' 10 cards
 INFOTEXT = ("image", "type", "strength", "fidelity", "for", "hires", "ADetailer")
 
 

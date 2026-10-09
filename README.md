@@ -57,7 +57,7 @@ else. Precise Reference needs two models in `models\precise_reference\` (about 2
 
 ## Character Prompts
 
-**+ Add character** adds a card (up to 6). Each card has:
+**+ Add character** adds a card (up to 10). Each card has:
 
 - an **On** / **Off** pill in the character's color: Off leaves the character out of the next
   image without deleting it;

@@ -145,6 +145,10 @@
 .nai-char-4 { --nai-char: #ffb36b; }
 .nai-char-5 { --nai-char: #b48cff; }
 .nai-char-6 { --nai-char: #5fd6d6; }
+.nai-char-7 { --nai-char: #f2d45c; }
+.nai-char-8 { --nai-char: #ff6363; }
+.nai-char-9 { --nai-char: #b5e05a; }
+.nai-char-10 { --nai-char: #c9c9d6; }
 
 .nai-panel .nai-char-card {
     border-left: 3px solid var(--nai-char) !important;
@@ -555,6 +559,10 @@
 .nai-surface .nai-c4 { --nai-char: #ffb36b; }
 .nai-surface .nai-c5 { --nai-char: #b48cff; }
 .nai-surface .nai-c6 { --nai-char: #5fd6d6; }
+.nai-surface .nai-c7 { --nai-char: #f2d45c; }
+.nai-surface .nai-c8 { --nai-char: #ff6363; }
+.nai-surface .nai-c9 { --nai-char: #b5e05a; }
+.nai-surface .nai-c10 { --nai-char: #c9c9d6; }
 
 /* the canvas of the next image, outlined so a changed width x height is visible; the image
    stays clickable outside the boxes */
