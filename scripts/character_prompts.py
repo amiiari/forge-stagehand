@@ -78,7 +78,7 @@ without deleting it; the <b>Character Prompts</b> pill in the Stagehand header d
 with Stagehand closed).</li>
 <li><b>Presets:</b> name a card, then &#128190; saves it (prompt and Undesired Content, line breaks kept). To use one,
 type in a card's name box and pick it from the list: the card's text is replaced (Ctrl+Z undoes it), its place and
-references stay. The <b>Stagehand Presets</b> tab (at the top of the page) lists them all to rename, edit or delete. &#10697; duplicates a card; &#8943; has its ADetailer face.</li>
+references stay. <b>Presets</b>, under the cards, lists them all to add, edit, rename or delete. &#10697; duplicates a card; &#8943; has its ADetailer face.</li>
 <li><b>Positions:</b> by default the characters stand left to right in card order (&uarr; &darr; to reorder).
 Drag one to place it yourself -- on the small canvas beside its card, or over the output image. <b>Boxes</b>: drag
 a box anywhere on it, resize it by any edge or corner. <b>Grid</b>: NovelAI's 5&times;5 grid; drag a character's
@@ -413,9 +413,10 @@ def _delete_preset(name):
     return True
 
 
-# ------------------------------------------------------------------- the Presets tab
-# Every preset in one place, to rename, edit or delete; a card's name box picks them and its 💾
-# saves them. stagehand.js presses ↻ whenever the tab is opened, so the list is never stale.
+# ----------------------------------------------------------------- the Presets panel
+# Every preset in one place under the cards, to add, edit, rename or delete; a card's name box
+# picks them and its 💾 saves them. stagehand.js presses ↻ whenever the panel is opened, so the
+# list is never stale.
 def _preset_names(search=""):
     """Matching names, original characters ("Ruby (OC)") first, then A-Z."""
     words = (search or "").lower().split()
@@ -467,38 +468,37 @@ def _tab_delete(name, search):
     return (_tab_list(search, name),) + _tab_pick(name if name in _presets() else None)
 
 
-def _presets_tab():
-    with gr.Blocks(analytics_enabled=False) as block:
-        with gr.Row(equal_height=False, elem_id="stagehand_presets"):
-            with gr.Column(scale=1, min_width=260):
-                with gr.Row(elem_classes=["stagehand-presets-tools"]):
-                    search = gr.Textbox(placeholder="Search presets", show_label=False, container=False, max_lines=1, scale=1, min_width=120)
-                    refresh = gr.Button("↻", elem_id="stagehand_presets_refresh", scale=0, min_width=40)
-                    new = gr.Button("+ New", scale=0, min_width=96)
-                names = gr.Radio(_preset_names(), show_label=False, container=False, elem_id="stagehand_presets_list")
+def _presets_panel(tab):
+    """The collapsed Presets panel under the cards. Returns (its list, its ↻), so a card's 💾
+    can refresh it."""
+    with gr.Accordion("Presets", open=False, elem_id=f"nai_{tab}_presets", elem_classes=["nai-presets"]):
+        with gr.Row(equal_height=False):
+            with gr.Column(scale=1, min_width=220):
+                with gr.Row(elem_classes=["nai-presets-tools"]):
+                    search = gr.Textbox(placeholder="Search", show_label=False, container=False, max_lines=1, scale=1, min_width=100)
+                    refresh = gr.Button("↻", elem_classes=["nai-presets-refresh"], scale=0, min_width=40)
+                    new = gr.Button("+ New", scale=0, min_width=90)
+                names = gr.Radio(_preset_names(), show_label=False, container=False, elem_classes=["nai-presets-list"])
             with gr.Column(scale=3):
                 name = gr.Textbox(label="Name", max_lines=1, placeholder="what a card's name box finds it by")
-                prompt = gr.Textbox(label="Prompt", lines=6)
+                prompt = gr.Textbox(label="Prompt", lines=4)
                 uc = gr.Textbox(label="Undesired Content", lines=2)
                 with gr.Row():
                     save = gr.Button("💾 Save", variant="primary", scale=0, min_width=110)
                     delete = gr.Button("🗑 Delete", scale=0, min_width=110)
-                gr.HTML('<p class="stagehand-presets-hint">Pick a preset to edit it; change its name and Save to rename it. '
-                        "+ New starts an empty one. On the txt2img / img2img tabs, typing in a character card's name box "
-                        "finds a preset, and 💾 on a card saves one."
-                        + (" Your presets are yours alone. The shared ones (from the host) can't be changed or deleted "
-                           "here: saving one, or renaming it, makes your own copy." if _separate() else "") + "</p>")
-        search.input(_tab_list, [search], [names], show_progress="hidden")
-        refresh.click(_tab_list, [search, names], [names], show_progress="hidden")
-        names.input(_tab_pick, [names], [name, prompt, uc], show_progress="hidden")
-        new.click(lambda: (gr.update(value=None), "", "", ""), None, [names, name, prompt, uc], show_progress="hidden")
-        save.click(_tab_save, [names, name, prompt, uc, search], [names], show_progress="hidden")
-        delete.click(_tab_delete, [names, search], [names, name, prompt, uc], show_progress="hidden",
-                     _js="(name, search) => [name && confirm(`Delete the character preset \"${name}\"?`) ? name : '', search]")
-    return [(block, "Stagehand Presets", "stagehand_presets_tab")]
-
-
-script_callbacks.on_ui_tabs(_presets_tab)
+                gr.HTML('<p class="nai-hint">Pick one to edit it; change its name and Save to rename it. + New starts an empty one.'
+                        + (" The shared ones (from the host) stay as they are: saving one makes your own copy, and only "
+                           "your own can be deleted." if _separate() else "") + "</p>")
+    search.input(_tab_list, [search], [names], show_progress="hidden")
+    refresh.click(_tab_list, [search, names], [names], show_progress="hidden")
+    names.input(_tab_pick, [names], [name, prompt, uc], show_progress="hidden")
+    new.click(lambda: (gr.update(value=None), "", "", ""), None, [names, name, prompt, uc], show_progress="hidden")
+    save.click(_tab_save, [names, name, prompt, uc, search], [names], show_progress="hidden")
+    delete.click(_tab_delete, [names, search], [names, name, prompt, uc], show_progress="hidden",
+                 _js="(name, search) => [name && confirm(`Delete the character preset \"${name}\"?`) ? name : '', search]")
+    for component in (search, refresh, new, names, name, prompt, uc, save, delete):
+        component.do_not_save_to_config = True  # ui-config keys collide by label
+    return names, search
 
 
 def _add(shown, *values):
@@ -987,6 +987,9 @@ class CharacterPrompts(scripts.Script):
             # Undo / redo: stagehand.js writes the state to go back to here (_restore)
             restore = gr.Textbox(value="", elem_id=f"nai_{tab}_chars_restore", elem_classes=["nai-hidden"], show_label=False, container=False)
             restore.input(_restore, [restore], [shown] + everything + [manual], show_progress="hidden")
+            preset_list, preset_search = _presets_panel(tab)
+            for save in saves:  # a card's 💾 shows up in the panel at once
+                save.click(_tab_list, [preset_search, preset_list], [preset_list], show_progress="hidden")
             gr.HTML(HELP)
 
         for component in [auto, add, presets, restore] + ups + downs + copies + removes + saves + mores:

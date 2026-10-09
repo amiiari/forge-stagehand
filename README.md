@@ -84,9 +84,9 @@ typed, line breaks included. Saving a card with the same name again updates the 
 **Type in a card's name box** to find a preset, and pick it from the list: the card's prompt and
 Undesired Content are replaced, while its place, references and number stay, so swapping one
 character for another keeps the composition. Ctrl+Z undoes it. Typing a name that happens to
-match a preset doesn't fill anything; only picking it does. The **Stagehand Presets** tab (at
-the top, beside txt2img and img2img) lists every preset, with a search: pick one to edit its
-prompt and Undesired Content, change its name and Save to rename it, or Delete it (it asks
+match a preset doesn't fill anything; only picking it does. **Presets**, a collapsed panel
+under the cards, lists every preset, with a search: pick one to edit its prompt and Undesired
+Content, change its name and Save to rename it, + New to add one, or Delete it (it asks
 first). Presets live in `stagehand character
 presets.json` in Forge's folder, so updating or reinstalling the extension keeps them.
 Original characters, named like `Ruby (OC)` or `Fran (artist, OC)`, are listed first.

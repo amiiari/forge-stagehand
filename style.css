@@ -294,34 +294,29 @@
     margin: 0 0 6px;
 }
 
-/* the Stagehand Presets tab: a scrolling list, one name per line */
-#stagehand_presets_list {
-    max-height: 68vh;
-    overflow-y: auto;
+/* the Presets panel under the cards: a scrolling list, one name per line */
+.nai-presets-list {
+    max-height: 40vh;
+    overflow-y: auto !important; /* Gradio's .block sets visible */
 }
 
-#stagehand_presets_list .wrap {
+.nai-presets-list .wrap {
     flex-direction: column;
     gap: 2px;
 }
 
-#stagehand_presets_list label {
+.nai-presets-list label {
     width: 100%;
     padding: 4px 10px !important;
 }
 
-.stagehand-presets-tools button {
+.nai-presets-tools button {
     white-space: nowrap;
 }
 
-.stagehand-presets-tools {
+.nai-presets-tools {
     flex-wrap: nowrap !important;
     align-items: center;
-}
-
-.stagehand-presets-hint {
-    opacity: 0.7;
-    font-size: 13px;
 }
 
 /* a character's references, in her Reference tab */

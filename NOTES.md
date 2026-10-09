@@ -274,7 +274,12 @@ carrying the LoRA's TE patches, then swapped back. Checked: a plain image before
 job with a TE LoRA is pixel-identical (the clone's patches come off). Note that Forge maps
 Anima TE keys as `lora_te_layers_*`; a LoRA saved as `lora_te1_layers_*` (Sally Whitemane's)
 has its TE half ignored everywhere, Forge's own loading included. A renamed copy proved the
-swap works (183k pixels changed).
+swap works (183k pixels changed). Whether loading that half helps was blind-tested (2026-10-08,
+Sally at 0.65 Masked, the user's pipeline, 8 pairs: standing, cathedral, casual, with Cissia,
+2 seeds each). The result was 4-4: the TE half won both standing pairs, today's image-only
+loading won both cathedral pairs, and casual and with-Cissia split. Her quirks (the womb
+tattoo, the black leotard) showed up in both versions. So there's no `lora_te1_` alias: it
+changes pixels but doesn't improve the image.
 
 Batches: each image's own tags count. The session's owners are (character, LoRA set) with
 the batch's images that rolled that set; a model-call row b is image b % batch (cond and

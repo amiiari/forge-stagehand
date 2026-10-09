@@ -1029,9 +1029,10 @@
         }
         undoKeys();
         deleteKey();
-        // the Stagehand Presets tab re-reads the file when opened: a card's 💾 may have added one
+        // the Presets panel re-reads the file when opened: the other tab, or another person, may have saved one
         document.addEventListener("click", (e) => {
-            if (e.target.closest?.("#tabs > .tab-nav button")?.textContent.trim() === "Stagehand Presets") el("stagehand_presets_refresh")?.click();
+            const panel = e.target.closest?.(".nai-presets > .label-wrap")?.parentElement;
+            if (panel) setTimeout(() => panel.querySelector(".nai-presets-refresh")?.click(), 0);
         });
         setInterval(() => TABS.forEach(([, id]) => settle(id)), 100);
         // Cheap and robust against everything that can change the layout (cards, toggles,

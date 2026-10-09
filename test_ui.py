@@ -337,16 +337,16 @@ async def check_presets(page):
     assert await page.wait("(gradioApp().querySelector('#nai_t2i_char2_prompt textarea') || {}).value === 'girl, to be replaced'", 10), \
         "Ctrl+Z didn't take the preset back"
 
-    # the Stagehand Presets tab: opening it lists the new preset; rename it, then delete it
-    await page.js("[...gradioApp().querySelectorAll('#tabs > .tab-nav button')].find(b => b.textContent.trim() === 'Stagehand Presets').click()")
-    item = f"[...gradioApp().querySelectorAll('#stagehand_presets_list label')].find(l => l.textContent.trim() === {json.dumps(PRESET_NAME)})"
-    assert await page.wait(f"!!{item}", 10), "the Presets tab doesn't list the new preset"
+    # the Presets panel under the cards: it lists the new preset; rename it, then delete it
+    await page.js("gradioApp().querySelector('#nai_t2i_presets > .label-wrap').click()")
+    item = f"[...gradioApp().querySelectorAll('#nai_t2i_presets .nai-presets-list label')].find(l => l.textContent.trim() === {json.dumps(PRESET_NAME)})"
+    assert await page.wait(f"!!{item}", 10), "the Presets panel doesn't list the new preset"
     await page.js(f"{item}.querySelector('input').click()")
-    name_box = "#stagehand_presets input[placeholder^='what a card']"
+    name_box = "#nai_t2i_presets input[placeholder^='what a card']"
     assert await page.wait(f"gradioApp().querySelector({json.dumps(name_box)}).value === {json.dumps(PRESET_NAME)}", 10), "picking it didn't fill the editor"
     renamed = PRESET_NAME + " renamed"
     await page.type(name_box, renamed)
-    await page.js("[...gradioApp().querySelectorAll('#stagehand_presets button')].find(b => b.textContent.includes('Save')).click()")
+    await page.js("[...gradioApp().querySelectorAll('#nai_t2i_presets button')].find(b => b.textContent.includes('Save')).click()")
     for _ in range(20):
         await asyncio.sleep(0.5)
         if renamed in saved_presets():
@@ -354,15 +354,15 @@ async def check_presets(page):
     assert renamed in saved_presets() and PRESET_NAME not in saved_presets(), "Save with a new name didn't rename it"
     assert saved_presets()[renamed]["prompt"] == PRESET_TEXT
     await page.js("window.confirm = () => true")
-    await page.js("[...gradioApp().querySelectorAll('#stagehand_presets button')].find(b => b.textContent.includes('Delete')).click()")
+    await page.js("[...gradioApp().querySelectorAll('#nai_t2i_presets button')].find(b => b.textContent.includes('Delete')).click()")
     for _ in range(20):
         await asyncio.sleep(0.5)
         if renamed not in saved_presets():
             break
     assert renamed not in saved_presets(), "🗑 Delete didn't delete it"
-    await page.js("[...gradioApp().querySelectorAll('#tabs > .tab-nav button')].find(b => b.textContent.trim() === 'txt2img').click()")
+    await page.js("gradioApp().querySelector('#nai_t2i_presets > .label-wrap').click()")  # closed again
     print("ok  presets: 💾 saves a card with its line breaks, the name box fills a card with it (Ctrl+Z undoes), "
-          "the Presets tab renames and deletes it")
+          "the Presets panel renames and deletes it")
 
 
 def drop_test_preset():
