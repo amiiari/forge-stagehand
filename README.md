@@ -114,7 +114,8 @@ shared ones can't be changed or deleted there; saving one (or renaming it) makes
       Boxes to confine one.
 - **Reset boxes** puts everyone back in the default columns; **Switch** swaps two characters'
   places (with just two, one ⇄ button); **on cards** / **on image** show or hide the maps on
-  the cards and the boxes over the output image (hide those to click the picture under them). **Ctrl+Z / Ctrl+Y** undo and redo moves,
+  the cards and the boxes over the output image (off until you turn them on; a click on them
+  still opens the picture, only a drag moves them). **Ctrl+Z / Ctrl+Y** undo and redo moves,
   Reset boxes, Switch and the card buttons (add, delete, ↑ ↓, duplicate), whenever you're not
   typing in a text box.
 - **More than one place for a character**: **+** on her card's map adds a half-size box (or a dot,

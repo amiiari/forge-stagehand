@@ -433,15 +433,23 @@
             }
             redraw(id);
         };
-        const up = () => {
+        const up = (e) => {
             window.removeEventListener("pointermove", move);
             window.removeEventListener("pointerup", up);
             const v = live.value;
-            const moved = v.some((x, i) => x !== start[i]);
+            const click = Math.hypot(e.clientX - x0, e.clientY - y0) < 4;
+            const moved = !click && v.some((x, i) => x !== start[i]);
             live = null;
             // a dot snaps to the cell it was dropped in
             if (moved) writePlace(id, n, j, mode === "dot" ? cellOf(v[0], v[1]) : boxText(v));
             redraw(id);
+            // a click on the output image's boxes is a click on the image: it opens it
+            if (click && surface.classList.contains("nai-positions")) {
+                surface.style.visibility = "hidden";
+                const under = document.elementFromPoint(e.clientX, e.clientY);
+                surface.style.visibility = "";
+                under?.click();
+            }
         };
         window.addEventListener("pointermove", move);
         window.addEventListener("pointerup", up);
@@ -558,13 +566,14 @@
         surface.querySelectorAll(":scope > [data-key]").forEach((d) => keep.has(d.dataset.key) || d.remove());
     }
 
-    // the two surface toggles, on unless switched off (remembered per browser)
+    // the two surface toggles, remembered per browser: on cards starts on, on image off (its
+    // boxes tint the picture you're looking at)
     const toggledOn = (id, what) => {
+        let saved = null;
         try {
-            return localStorage.getItem(`stagehand-${what}-${id}`) !== "0";
-        } catch (e) {
-            return true;
-        }
+            saved = localStorage.getItem(`stagehand-${what}-${id}`);
+        } catch (e) {}
+        return saved === null ? what !== "image" : saved !== "0";
     };
 
     function render(tab, id) {

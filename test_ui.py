@@ -165,6 +165,10 @@ async def check_positions(page):
     assert not await page.js("!!gradioApp().querySelector('#nai_t2i_char1 .nai-mini [data-key=box2_0]')"), \
         "a card's canvas shows another character"
     assert await page.js(box(1)) == "" and await page.js(box(2)) == "", "positions before anyone was placed"
+    image_toggle = "gradioApp().querySelector('#nai_t2i_chars_tools .nai-toggle[data-what=image]').click()"
+    assert await page.js("(gradioApp().querySelector('#nai_t2i_positions') || {style: {display: 'none'}}).style.display === 'none'"), \
+        "the boxes on the output image should start off"
+    await page.js(image_toggle)
     # 768x768: the canvas is 200x200, so 20px is 0.1 of the image
     await drag(page, "#nai_t2i_char1 .nai-mini [data-key=box1_0]", 20, 0)
     assert await page.js(box(1)) == "0.100 0.000 0.600 1.000", f"dragging on the canvas: {await page.js(box(1))!r}"
@@ -215,15 +219,19 @@ async def check_positions(page):
     assert await page.js(box(1)) == "0.000 0.000 0.500 1.000", f"Delete: {await page.js(box(1))!r}"
     await key(page, "z")
     assert await page.js(box(1)) == "0.000 0.000 0.500 1.000 + 0.500 0.250 0.750 0.750", "Ctrl+Z didn't bring the place back"
-    # the on-image toggle hides the overlay, the canvases stay
-    await page.js("gradioApp().querySelector('#nai_t2i_chars_tools .nai-toggle[data-what=image]').click()")
+    # a click (no drag) on the output image's boxes opens the image, and moves nothing
+    await drag(page, "#nai_t2i_positions [data-key=box1_0]", 0, 0)
+    assert await page.wait("gradioApp().getElementById('lightboxModal').style.display === 'flex'", 5), "a click on the boxes didn't open the image"
+    assert await page.js(box(1)) == "0.000 0.000 0.500 1.000 + 0.500 0.250 0.750 0.750", "a click moved a place"
+    await page.js("closeModal()")
+    # the on-image toggle hides the overlay again, the canvases stay
+    await page.js(image_toggle)
     assert await page.wait("gradioApp().querySelector('#nai_t2i_positions').style.display === 'none'", 5), "the on-image toggle didn't hide the boxes"
     assert await page.js("!!gradioApp().querySelector('#nai_t2i_char1 .nai-mini')")
-    await page.js("gradioApp().querySelector('#nai_t2i_chars_tools .nai-toggle[data-what=image]').click()")
     # leave the user's page as it was: one place, nobody placed
     await page.js("gradioApp().querySelector('#nai_t2i_chars_tools .nai-reset').click()")
     await asyncio.sleep(0.8)
-    print("ok  undoing a card button; Delete on a picked place (and its undo); the on-image toggle")
+    print("ok  undoing a card button; Delete on a picked place (and its undo); on image: off at first, a click opens the image, the toggle")
 
 
 async def check_paste(page, info):
