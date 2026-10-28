@@ -380,6 +380,19 @@ def drop_test_preset():
             json.dump(presets, f, ensure_ascii=False, indent=2)
 
 
+async def check_transparent(page):
+    """The Transparent pill sits in the header and switches its (hidden) checkbox."""
+    await page.load()
+    pill = "gradioApp().querySelector('#nai_t2i_stagehand > summary .nai-pill[data-feature=alpha]')"
+    box = "gradioApp().querySelector('#nai_t2i_alpha_on input')"
+    assert await page.js(f"!!{pill} && {box}.checked === false"), "no Transparent pill, or it starts on"
+    await page.js(f"{pill}.click()")
+    assert await page.wait(f"{box}.checked && {pill}.classList.contains('nai-on')", 5), "the pill didn't switch it on"
+    await page.js(f"{pill}.click()")
+    assert await page.wait(f"!{box}.checked", 5), "the pill didn't switch it off"
+    print("ok  the Transparent pill switches transparency on and off")
+
+
 # batch-adetailer's order: NrM.png -> Batch Hires-Fix -> NrM-hires.png -> Batch ADetailer -> NrM-hires-adetailer.png
 BATCH_TABS = {
     "hires": ("Batch Hires-Fix", "load every base image in one folder", "-hires.png into each", "Run Batch Hires-Fix"),
@@ -433,6 +446,7 @@ async def main(url, batch):
             await check_positions(page)
             await check_paste(page, info)
             await check_reference(page, image)
+            await check_transparent(page)
             try:
                 await check_presets(page)
             finally:

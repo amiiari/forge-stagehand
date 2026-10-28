@@ -81,6 +81,13 @@ else. Precise Reference needs two models in `models\precise_reference\` (about 2
 | `ip_adapter-Character_Reference-10.safetensors` | [LuciferTC/Anima-IP-Adapter](https://huggingface.co/LuciferTC/Anima-IP-Adapter) |
 | `siglip2-base-patch16-512\` (`config.json`, `preprocessor_config.json`, `model.safetensors`) | [google/siglip2-base-patch16-512](https://huggingface.co/google/siglip2-base-patch16-512) |
 
+Transparent needs ToonOut in `models\toonout\` (about 0.9 GB):
+
+| File | From |
+|---|---|
+| `birefnet_finetuned_toonout.pth` | [joelseytre/toonout](https://huggingface.co/joelseytre/toonout) |
+| `birefnet.py`, `BiRefNet_config.py` | [ZhengPeng7/BiRefNet](https://huggingface.co/ZhengPeng7/BiRefNet/tree/e2bf8e4460fc8fa32bba5ea4d94b3233d367b0e4) (the model's code) |
+
 ---
 
 ## Character Prompts
@@ -302,6 +309,25 @@ It needs the base Anima (28 blocks); other sizes are skipped with a console mess
 
 ---
 
+## Transparent
+
+The **Transparent** pill in the Stagehand header gives images a transparent background: Anima
+can't make one itself, so the finished image (after Hires fix and ADetailer) has its
+background cut away by [ToonOut](https://huggingface.co/joelseytre/toonout), a background
+remover trained on anime characters. Prompt a plain background (`simple background`) for the
+cleanest edges.
+
+Editing a transparent image in img2img keeps it transparent without the pill: Forge puts it on
+grey to repaint it, and the result is cut again. With an inpaint mask, only what was repainted
+is cut; everything else keeps the alpha it came with. The PNG info says
+`Transparent background: True`, so pasting it switches the pill back on.
+
+The first cut loads the model (~9 s); after that it takes about 0.2 s per image.
+`POST /stagehand/v1/matte` with `{"image": "<base64>"}` returns `{"alpha": "<base64 PNG>"}`,
+the cut on its own (Krita AI Diffusion's Stagehand fork uses it for ComfyUI results).
+
+---
+
 ## API
 
 Everything works through Forge's own API (start Forge with `--api`), on `/sdapi/v1/txt2img`
@@ -374,6 +400,14 @@ what was applied (`PR 1 strength: …`, `PR 1 for: Character 1`, `PR 1 hires: Tr
 An arg list without the last twelve values (written before they existed) still works: Forge
 fills them with the defaults (whole image, neither pass), and the old ADetailer flag, when
 true, still puts every card in ADetailer.
+
+### Transparent
+
+```jsonc
+"alwayson_scripts": {"Transparent": {"args": [true]}}
+```
+
+img2img with a transparent `init_images` image needs nothing: it stays transparent.
 
 ### Per request
 

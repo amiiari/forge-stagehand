@@ -1,7 +1,8 @@
 // Stagehand in the browser:
 // - both panels (Character Prompts, Precise Reference) go under the prompt boxes, inside one
 //   "Stagehand" fold-out. Its header has a pill per feature that switches it on or off -- also
-//   while the fold-out is closed -- and an off feature's section is hidden;
+//   while the fold-out is closed -- and an off feature's section is hidden (Transparent is
+//   only a pill: no section);
 // - a prompt that carries characters -- Set Queue's "Restore template" (marked ⟦n⟧), or text
 //   pasted from an image's PNG info ("Character 1 (Ava): ...") -- is split into the cards;
 // - the characters are placed on "surfaces": a small canvas beside each card (that character
@@ -18,7 +19,7 @@
     const MAX = 10;
     const GRID = 5;
     const SHARE = 50; // a card's default overlap share (characters.SHARE)
-    const FEATURES = [["chars", "Character Prompts"], ["pr", "Precise Reference"]];
+    const FEATURES = [["chars", "Character Prompts"], ["pr", "Precise Reference"], ["alpha", "Transparent"]];
     const FACE_AUTO = "Face: auto"; // character_prompts.FACES[0]
     const SVG = "http://www.w3.org/2000/svg";
     const MINI = 200; // a card's canvas, long side in px
@@ -84,7 +85,8 @@
     function wrap(tab, id) {
         const negRow = el(`${tab}_neg_prompt_row`);
         const panels = [el(`nai_${id}_chars`), el(`nai_${id}_pr`)].filter(Boolean);
-        if (!negRow || !panels.length) return;
+        // Transparent's pill needs the fold-out even with both panels hidden in Settings
+        if (!negRow || (!panels.length && !el(`nai_${id}_alpha_on`))) return;
         const box = document.createElement("details");
         box.id = `nai_${id}_stagehand`;
         box.className = "nai-stagehand";
@@ -100,7 +102,9 @@
             pill.type = "button";
             pill.className = "nai-pill";
             pill.dataset.feature = feature;
-            pill.title = `Switch ${label} on or off (an off section is hidden, its settings kept)`;
+            pill.title = feature === "alpha"
+                ? "Cut the background out: a PNG with transparency (img2img keeps an input's transparency by itself)"
+                : `Switch ${label} on or off (an off section is hidden, its settings kept)`;
             pill.innerHTML = `<span class="nai-pill-dot"></span>${label}<span class="nai-pill-count"></span>`;
             // a click on the pill must not also open or close the fold-out
             pill.addEventListener("click", (e) => {
@@ -135,9 +139,10 @@
             const panel = el(`nai_${id}_${feature}`);
             if (panel) panel.style.display = on ? "" : "none";
         }
-        // an open fold-out with both features off would be empty: say why (style.css)
+        // an open fold-out with both panels off would be empty: say why (style.css)
+        // (Transparent has no panel, only its pill)
         // (a feature hidden in Settings has no checkbox at all, so it doesn't count as on)
-        box.classList.toggle("nai-all-off", !FEATURES.some(([feature]) => checkbox(`nai_${id}_${feature}_on`)?.checked));
+        box.classList.toggle("nai-all-off", !FEATURES.some(([feature]) => el(`nai_${id}_${feature}`) && checkbox(`nai_${id}_${feature}_on`)?.checked));
         syncTools(id);
     }
 
