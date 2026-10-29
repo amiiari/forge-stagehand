@@ -81,12 +81,13 @@ else. Precise Reference needs two models in `models\precise_reference\` (about 2
 | `ip_adapter-Character_Reference-10.safetensors` | [LuciferTC/Anima-IP-Adapter](https://huggingface.co/LuciferTC/Anima-IP-Adapter) |
 | `siglip2-base-patch16-512\` (`config.json`, `preprocessor_config.json`, `model.safetensors`) | [google/siglip2-base-patch16-512](https://huggingface.co/google/siglip2-base-patch16-512) |
 
-Transparent needs ToonOut in `models\toonout\` (about 0.9 GB):
+Transparent needs ToonOut and ViTMatte in `models\toonout\` (about 1.3 GB):
 
 | File | From |
 |---|---|
 | `birefnet_finetuned_toonout.pth` | [joelseytre/toonout](https://huggingface.co/joelseytre/toonout) |
 | `birefnet.py`, `BiRefNet_config.py` | [ZhengPeng7/BiRefNet](https://huggingface.co/ZhengPeng7/BiRefNet/tree/e2bf8e4460fc8fa32bba5ea4d94b3233d367b0e4) (the model's code) |
+| `vitmatte\` (`config.json`, `preprocessor_config.json`, `model.safetensors`) | [hustvl/vitmatte-base-composition-1k](https://huggingface.co/hustvl/vitmatte-base-composition-1k) (it ships `pytorch_model.bin`; transformers loads that too) |
 
 ---
 
@@ -314,17 +315,20 @@ It needs the base Anima (28 blocks); other sizes are skipped with a console mess
 The **Transparent** pill in the Stagehand header gives images a transparent background: Anima
 can't make one itself, so the finished image (after Hires fix and ADetailer) has its
 background cut away by [ToonOut](https://huggingface.co/joelseytre/toonout), a background
-remover trained on anime characters. Prompt a plain background (`simple background`) for the
-cleanest edges.
+remover trained on anime characters. [ViTMatte](https://huggingface.co/hustvl/vitmatte-base-composition-1k)
+then works out the edge (hair, fur and lace get real partial transparency), and the edge's
+colours are cleaned of the old background, so there's no light or grey fringe. Prompt a plain
+background (`simple background`) for the cleanest cut.
 
 Editing a transparent image in img2img keeps it transparent without the pill: Forge puts it on
 grey to repaint it, and the result is cut again. With an inpaint mask, only what was repainted
-is cut; everything else keeps the alpha it came with. The PNG info says
+is cut; everything else keeps its own pixels, colour and alpha. The PNG info says
 `Transparent background: True`, so pasting it switches the pill back on.
 
-The first cut loads the model (~9 s); after that it takes about 0.2 s per image.
-`POST /stagehand/v1/matte` with `{"image": "<base64>"}` returns `{"alpha": "<base64 PNG>"}`,
-the cut on its own (Krita AI Diffusion's Stagehand fork uses it for ComfyUI results).
+The first cut loads the models (~10 s); after that it takes under a second per image.
+`POST /stagehand/v1/matte` with `{"image": "<base64>"}` returns `{"alpha": "<base64 PNG>",
+"image": "<base64 PNG>"}`: the cut on its own, as its alpha and as the cut-out image with the
+edge colours cleaned (Krita AI Diffusion's Stagehand fork uses it for ComfyUI results).
 
 ---
 

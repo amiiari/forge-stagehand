@@ -1,7 +1,8 @@
 """Transparent backgrounds. Anima has no alpha channel of its own (LayerDiffuse is SDXL/SD1.5
 only), so a finished image has its background cut out by ToonOut: BiRefNet fine-tuned on
-anime characters (joelseytre/toonout, MIT). Its weights and BiRefNet's model code
-(ZhengPeng7/BiRefNet, pinned) live in models/toonout.
+anime characters (joelseytre/toonout, MIT); ViTMatte then works out the edge (hair, fur,
+lace) and the edge's colours are cleaned of the old background (cutout()). The weights,
+BiRefNet's model code (ZhengPeng7/BiRefNet, pinned) and ViTMatte live in models/toonout.
 
 An edit keeps the input's own pixels -- colour and alpha -- outside the inpaint mask, so only
 what was repainted is cut again. Forge flattens a transparent input onto grey
@@ -55,15 +56,89 @@ def has_alpha(image: Image.Image | None) -> bool:
     return image is not None and image.mode == "RGBA" and image.getextrema()[-1][0] < 255
 
 
+def _input_size(image: Image.Image, keep_shape: bool) -> tuple[int, int]:
+    """BiRefNet's input: its 1024x1024, or about as many pixels in the image's own shape."""
+    if not keep_shape:
+        return SIZE, SIZE
+    scale = (SIZE * SIZE / (image.width * image.height)) ** 0.5
+    return max(32, round(image.width * scale / 32) * 32), max(32, round(image.height * scale / 32) * 32)
+
+
 @torch.inference_mode()
-def matte(image: Image.Image, folder: Path) -> Image.Image:
+def matte(image: Image.Image, folder: Path, keep_shape=False) -> Image.Image:
     """The foreground's alpha, at the image's size."""
     model = _load(folder)
     param = next(model.parameters())
-    x = np.asarray(image.convert("RGB").resize((SIZE, SIZE), Image.BICUBIC), np.float32) / 255
+    x = np.asarray(image.convert("RGB").resize(_input_size(image, keep_shape), Image.BICUBIC), np.float32) / 255
     x = torch.from_numpy(((x - MEAN) / STD).transpose(2, 0, 1)[None]).to(param.device, param.dtype)
     alpha = model(x)[-1].sigmoid()[0, 0].float().cpu().numpy()
     return Image.fromarray((alpha * 255).round().astype(np.uint8)).resize(image.size, Image.BILINEAR)
+
+
+_vitmatte = None
+
+
+def _load_vitmatte(folder: Path):
+    global _vitmatte
+    if _vitmatte is None:
+        from transformers import VitMatteForImageMatting, VitMatteImageProcessor
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        model = VitMatteForImageMatting.from_pretrained(folder / "vitmatte").eval().to(device)
+        _vitmatte = model, VitMatteImageProcessor.from_pretrained(folder / "vitmatte")
+    return _vitmatte
+
+
+def trimap(alpha: Image.Image) -> Image.Image:
+    """Sure foreground (255), sure background (0) and the band between (128) to work out,
+    from a cut: its soft edge, widened by a few pixels each way."""
+    import cv2
+
+    a = np.asarray(alpha.convert("L"))
+    k = max(3, round(max(a.shape) / 200)) | 1  # ~5 px at 1024, 13 at 2560
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
+    fg = cv2.erode((a >= 242).astype(np.uint8), kernel)
+    bg = cv2.erode((a <= 13).astype(np.uint8), kernel)
+    return Image.fromarray(np.where(fg == 1, 255, np.where(bg == 1, 0, 128)).astype(np.uint8))
+
+
+@torch.inference_mode()
+def refine(image: Image.Image, alpha: Image.Image, folder: Path) -> Image.Image:
+    """The cut's edge worked out by ViTMatte (hustvl/vitmatte-base-composition-1k): real
+    partial transparency for hair and soft edges, where a cut only guesses."""
+    model, processor = _load_vitmatte(folder)
+    tri = trimap(alpha)
+    inputs = processor(images=image.convert("RGB"), trimaps=tri, return_tensors="pt").to(model.device)
+    out = model(**inputs).alphas[0, 0, : image.height, : image.width].float().cpu().numpy()  # the processor pads
+    t = np.asarray(tri)
+    out = np.where(t == 255, 1.0, np.where(t == 0, 0.0, out))  # only the band is worked out
+    return Image.fromarray((np.clip(out, 0, 1) * 255).round().astype(np.uint8))
+
+
+def decontaminate(image: Image.Image, alpha: Image.Image) -> Image.Image:
+    """The foreground's own colour where it's partly transparent, without the old background
+    blended in (no light or grey fringe): Forte & Pitie's blur-fusion estimate (2021)."""
+    import cv2
+
+    i = np.asarray(image.convert("RGB"), np.float32) / 255
+    a = (np.asarray(alpha.convert("L"), np.float32) / 255)[:, :, None]
+
+    def fuse(f, b, r):
+        blurred_a = cv2.blur(a, (r, r))[:, :, None]
+        blurred_f = cv2.blur(f * a, (r, r)) / (blurred_a + 1e-5)
+        blurred_b = cv2.blur(b * (1 - a), (r, r)) / ((1 - blurred_a) + 1e-5)
+        return np.clip(blurred_f + a * (i - a * blurred_f - (1 - a) * blurred_b), 0, 1), blurred_b
+
+    f, b = fuse(i, i, 90)
+    f, _ = fuse(f, b, 6)
+    return Image.fromarray((f * 255).round().astype(np.uint8))
+
+
+def cutout(image: Image.Image, folder: Path) -> tuple[Image.Image, Image.Image]:
+    """The cut (colour, alpha): ToonOut's mask, its edge worked out by ViTMatte, the edge's
+    colours cleaned. Won the user's blind round (NOTES.md, "Transparent")."""
+    alpha = refine(image, matte(image, folder), folder)
+    return decontaminate(image, alpha), alpha
 
 
 def cut_out(image: Image.Image, cut: Image.Image, source: Image.Image | None = None, mask: Image.Image | None = None) -> Image.Image:

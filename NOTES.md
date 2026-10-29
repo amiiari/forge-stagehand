@@ -467,3 +467,30 @@ the arg layout are unchanged (still 4 cards with `for`); only where a card is dr
   as an image array, and checking it against `""` raised an error that Forge's script runner
   swallowed. API calls, which send base64 text, worked, and that's what the earlier testing
   used. `test_ui.py` exists because of this.
+
+---
+
+## Transparent
+
+Anima has no alpha, so a finished image has its background cut away afterwards. The cut is
+ToonOut (BiRefNet fine-tuned on anime), then ViTMatte on the band around its edge (a trimap:
+the cut's soft edge widened ~1/200 of the image each way), then the edge's colours are
+estimated without the old background (Forte & Pitie's blur fusion, two passes, radius 90 then 6).
+
+Blind round, 2026-10-28: 6 images through the author's settings (loose hair, sheer sleeves and
+a glass, fur, two characters, wings on a gradient, dark hair on black), five cuts each, ranked
+best first:
+
+| | average rank | per image |
+|---|---|---|
+| ToonOut at 1024x1024 + ViTMatte + clean edges (adopted) | 1.67 | 2 1 3 1 1 2 |
+| ToonOut in the image's own shape + ViTMatte + clean edges | 1.83 | 1 2 1 2 2 3 |
+| own shape + ViTMatte | 2.67 | 3 3 2 3 4 1 |
+| own shape | 4.17 | 4 5 4 5 3 4 |
+| ToonOut at 1024x1024 alone (the first version) | 4.67 | 5 4 5 4 5 5 |
+
+- The refinement is what counts: the plain cut was 4th or 5th on every image.
+- Cleaning the edge colours beat ViTMatte alone (1.83 against 2.67).
+- Squashing to 1024x1024 or keeping the image's shape is a tie (3 images each); the squash
+  stayed, being what ToonOut was trained on.
+- Together they cost under a second per image (ViTMatte peaked at 3.3 GB at 832x1216).

@@ -34,7 +34,8 @@ script_callbacks.on_infotext_pasted(_off_on_paste)
 
 
 def _api(_demo, app):
-    """POST /stagehand/v1/matte {"image": base64} -> {"alpha": base64 PNG}: the cut on its own,
+    """POST /stagehand/v1/matte {"image": base64} -> {"alpha": base64 PNG, "image": base64 PNG}:
+    the cut on its own -- its alpha, and the image as RGBA with the edge colours cleaned --
     for images made elsewhere (Krita's ComfyUI generations). Behind --api and --api-auth like
     Forge's own routes, and in Forge's queue: it waits for a generation that's running."""
     from secrets import compare_digest
@@ -61,10 +62,14 @@ def _api(_demo, app):
         if image.width * image.height > MAX_PIXELS:
             raise HTTPException(413, f"at most {MAX_PIXELS} pixels")
         with queue_lock:
-            alpha = transparent.matte(image, FOLDER)
-        buf = io.BytesIO()
-        alpha.save(buf, format="PNG")  # PNG whatever Forge saves images as: the matte must be exact
-        return {"alpha": base64.b64encode(buf.getvalue()).decode()}
+            rgb, alpha = transparent.cutout(image, FOLDER)
+
+        def png(im):  # PNG whatever Forge saves images as: the matte must be exact
+            buf = io.BytesIO()
+            im.save(buf, format="PNG")
+            return base64.b64encode(buf.getvalue()).decode()
+
+        return {"alpha": png(alpha), "image": png(transparent.cut_out(rgb, alpha))}
 
     app.add_api_route("/stagehand/v1/matte", matte, methods=["POST"], dependencies=[Depends(auth)] if users else [])
 
@@ -108,7 +113,8 @@ class Transparent(scripts.Script):
     def postprocess_image_after_composite(self, p, pp, on=False, *args):
         if getattr(p, "_ad_inner", False) or not p.extra_generation_params.get(LABEL):
             return
-        cut = transparent.matte(pp.image, FOLDER)
+        rgb, cut = transparent.cutout(pp.image, FOLDER)
+        rgb.info = dict(pp.image.info)
         source = self._source(p, pp.index)
         mask = getattr(p, "mask_for_overlay", None) if getattr(p, "image_mask", None) is not None else None
         if not transparent.has_alpha(source) or mask is None:
@@ -116,7 +122,7 @@ class Transparent(scripts.Script):
         elif source.size != pp.image.size:  # as Forge resized it ("Latent upscale" resizes plainly)
             mode = 0 if p.resize_mode == 3 else p.resize_mode
             source = images.resize_image(mode, source, *pp.image.size, force_RGBA=True)
-        pp.image = transparent.cut_out(pp.image, cut, source, mask)
+        pp.image = transparent.cut_out(rgb, cut, source, mask)
 
     @staticmethod
     def _source(p, index):
